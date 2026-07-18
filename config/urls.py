@@ -3,13 +3,16 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from wagtail.admin import urls as wagtailadmin_urls
-from wagtail import urls as wagtail_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
-from core.views import health
+from core.views import health, landing
 from cms.api import api_router
 
 urlpatterns = [
+    # Branded landing page — this backend is headless, so the root URL isn't a
+    # real page (Next.js is the public site); point visitors at the two admins.
+    path('', landing, name='landing'),
+
     # Unfold-themed Django admin (for non-CMS models: users, and future CRM data)
     path('admin/', admin.site.urls),
     # Wagtail CMS admin (separate surface, for editing marketing page content)
@@ -23,9 +26,3 @@ urlpatterns = [
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
-
-urlpatterns += [
-    # Wagtail page serving — only used for the admin's preview panel, not by the
-    # (separate) Next.js frontend, which reads content through api/cms/v2/ instead.
-    path('', include(wagtail_urls)),
-]
