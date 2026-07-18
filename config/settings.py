@@ -31,6 +31,21 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
+# Vercel sets VERCEL_URL to the current deployment's hostname (production
+# alias and preview URLs alike) — trust it automatically so we don't have to
+# hardcode/update it by hand for every deployment.
+VERCEL_URL = os.getenv('VERCEL_URL')
+if VERCEL_URL and VERCEL_URL not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(VERCEL_URL)
+
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
+]
+
+# Vercel terminates TLS and proxies requests over HTTP internally, so Django
+# needs this to correctly detect HTTPS (request.is_secure(), CSRF checks).
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 
 # Application definition
 
