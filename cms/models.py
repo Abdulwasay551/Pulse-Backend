@@ -7,6 +7,7 @@ from wagtail.fields import StreamField
 from wagtail.models import Page
 from wagtail.search import index
 from wagtail.snippets.models import register_snippet
+from wagtail_headless_preview.models import HeadlessPreviewMixin
 
 from .blocks import (
     ComparisonRowBlock,
@@ -139,7 +140,7 @@ class SiteSettings(BaseSiteSetting):
 # ---------------------------------------------------------------------------
 
 
-class HomePage(Page):
+class HomePage(HeadlessPreviewMixin, Page):
     max_count = 1
     template = "cms/home_page.html"
 
@@ -250,7 +251,7 @@ class HomePage(Page):
     ]
 
 
-class PricingPage(Page):
+class PricingPage(HeadlessPreviewMixin, Page):
     max_count = 1
     template = "cms/pricing_page.html"
 
@@ -284,7 +285,7 @@ class PricingPage(Page):
     ]
 
 
-class SolutionsPage(Page):
+class SolutionsPage(HeadlessPreviewMixin, Page):
     max_count = 1
     template = "cms/solutions_page.html"
 
@@ -311,7 +312,7 @@ class SolutionsPage(Page):
     ]
 
 
-class UseCasesPage(Page):
+class UseCasesPage(HeadlessPreviewMixin, Page):
     max_count = 1
     template = "cms/use_cases_page.html"
 
@@ -358,7 +359,7 @@ class UseCasesPage(Page):
     ]
 
 
-class WhoWeServePage(Page):
+class WhoWeServePage(HeadlessPreviewMixin, Page):
     max_count = 1
     template = "cms/who_we_serve_page.html"
 
@@ -386,7 +387,7 @@ class WhoWeServePage(Page):
     ]
 
 
-class ResourcesPage(Page):
+class ResourcesPage(HeadlessPreviewMixin, Page):
     max_count = 1
     template = "cms/resources_page.html"
 

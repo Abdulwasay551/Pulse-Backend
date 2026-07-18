@@ -79,6 +79,7 @@ INSTALLED_APPS = [
     'wagtail',
     'modelcluster',
     'taggit',
+    'wagtail_headless_preview',
 ]
 
 MIDDLEWARE = [
@@ -97,6 +98,10 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = os.getenv(
     'DJANGO_CORS_ALLOWED_ORIGINS', 'http://localhost:3000'
 ).split(',')
+
+# The separately-deployed Next.js site — linked from the backend landing
+# page, and used as the base for Wagtail's headless preview redirects.
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
 ROOT_URLCONF = 'config.urls'
 
@@ -208,6 +213,18 @@ REST_FRAMEWORK = {
 WAGTAIL_SITE_NAME = 'EvoHR CMS'
 WAGTAILADMIN_BASE_URL = os.getenv('WAGTAILADMIN_BASE_URL', 'http://localhost:8000')
 WAGTAIL_APPEND_SLASH = False
+
+# Headless preview: clicking "Preview" in Wagtail redirects the editor to the
+# Next.js frontend's /preview route with ?content_type=...&token=..., which
+# fetches the *draft* page data from api/cms/v2/page_preview/ and renders it
+# with the same components the real page uses.
+WAGTAIL_HEADLESS_PREVIEW = {
+    'CLIENT_URLS': {
+        'default': f'{FRONTEND_URL}/preview',
+    },
+    'REDIRECT_ON_PREVIEW': True,
+    'ENFORCE_TRAILING_SLASH': False,
+}
 
 # Unfold (theming django.contrib.admin, kept separate from the Wagtail CMS admin at /cms/)
 UNFOLD = {
