@@ -256,6 +256,40 @@ class Command(BaseCommand):
                 ("stat", {"value": "94%", "label": "client retention"}),
             ],
             stats_cta_label="Book a demo",
+            testimonials_eyebrow="What agencies say",
+            testimonials_title="Recruiters run their whole desk on this.",
+            testimonials=[
+                (
+                    "testimonial",
+                    {
+                        "quote": "We cut time-to-placement by 30% in the first quarter — mostly by killing the "
+                        "spreadsheet handoffs between sourcing and payroll.",
+                        "name": "Priya Nair",
+                        "title": "Founder, Anchorpoint Search",
+                        "initials": "PN",
+                    },
+                ),
+                (
+                    "testimonial",
+                    {
+                        "quote": "Payroll used to eat a full day every two weeks. Now it's a review-and-approve "
+                        "step that takes twenty minutes.",
+                        "name": "Marcus Webb",
+                        "title": "Operations Lead, Harborview Group",
+                        "initials": "MW",
+                    },
+                ),
+                (
+                    "testimonial",
+                    {
+                        "quote": "Every recruiter on the desk works off the same candidate record now. No more "
+                        "'whose version of this spreadsheet is current.'",
+                        "name": "Elena Cho",
+                        "title": "Managing Director, Meridian Staffing",
+                        "initials": "EC",
+                    },
+                ),
+            ],
         )
         root.add_child(instance=home)
 

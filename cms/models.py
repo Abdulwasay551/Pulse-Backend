@@ -23,6 +23,7 @@ from .blocks import (
     SkillBarBlock,
     StageCountBlock,
     StatItemBlock,
+    TestimonialBlock,
     UseCaseBlock,
     WIDGET_TYPE_CHOICES,
 )
@@ -208,6 +209,12 @@ class HomePage(HeadlessPreviewMixin, Page):
     stats_items = StreamField([("stat", StatItemBlock())], blank=True)
     stats_cta_label = models.CharField(max_length=40, default="Book a demo")
 
+    testimonials_eyebrow = models.CharField(max_length=60, default="What agencies say")
+    testimonials_title = models.CharField(
+        max_length=160, default="Recruiters run their whole desk on this."
+    )
+    testimonials = StreamField([("testimonial", TestimonialBlock())], blank=True)
+
     content_panels = Page.content_panels + [
         MultiFieldPanel(
             [
@@ -254,6 +261,14 @@ class HomePage(HeadlessPreviewMixin, Page):
             ],
             heading="Stats banner (black section)",
         ),
+        MultiFieldPanel(
+            [
+                FieldPanel("testimonials_eyebrow"),
+                FieldPanel("testimonials_title"),
+                FieldPanel("testimonials"),
+            ],
+            heading="Testimonials",
+        ),
     ]
 
     api_fields = [
@@ -282,6 +297,9 @@ class HomePage(HeadlessPreviewMixin, Page):
         APIField("stats_heading"),
         APIField("stats_items"),
         APIField("stats_cta_label"),
+        APIField("testimonials_eyebrow"),
+        APIField("testimonials_title"),
+        APIField("testimonials"),
     ]
 
 

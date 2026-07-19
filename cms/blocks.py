@@ -173,3 +173,14 @@ class StatItemBlock(blocks.StructBlock):
     class Meta:
         icon = "site"
         label = "Stat"
+
+
+class TestimonialBlock(blocks.StructBlock):
+    quote = blocks.TextBlock(max_length=280, help_text="Keep it specific and outcome-based")
+    name = blocks.CharBlock(max_length=80)
+    title = blocks.CharBlock(max_length=100, help_text="e.g. Founder, Bright Path Staffing")
+    initials = blocks.CharBlock(max_length=3)
+
+    class Meta:
+        icon = "openquote"
+        label = "Testimonial"
