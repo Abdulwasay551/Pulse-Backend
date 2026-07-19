@@ -164,3 +164,12 @@ class FooterColumnBlock(blocks.StructBlock):
     class Meta:
         icon = "list-ul"
         label = "Footer column"
+
+
+class StatItemBlock(blocks.StructBlock):
+    value = blocks.CharBlock(max_length=20, help_text="e.g. 150+, $20B+, 94%")
+    label = blocks.CharBlock(max_length=60, help_text="e.g. countries, client retention")
+
+    class Meta:
+        icon = "site"
+        label = "Stat"

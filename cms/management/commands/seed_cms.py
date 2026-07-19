@@ -248,6 +248,14 @@ class Command(BaseCommand):
             suite_eyebrow="The EvoHR suite",
             suite_title="One platform, every part of the desk.",
             suite_subtitle="Start with the core CRM, then turn on the modules your agency actually needs.",
+            stats_heading="EvoHR makes closing placements effortless",
+            stats_items=[
+                ("stat", {"value": "100+", "label": "countries"}),
+                ("stat", {"value": "12,000+", "label": "recruiters"}),
+                ("stat", {"value": "$2B+", "label": "placements facilitated"}),
+                ("stat", {"value": "94%", "label": "client retention"}),
+            ],
+            stats_cta_label="Book a demo",
         )
         root.add_child(instance=home)
 

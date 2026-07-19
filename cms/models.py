@@ -7,6 +7,7 @@ from wagtail.fields import StreamField
 from wagtail.models import Page
 from wagtail.search import index
 from wagtail.snippets.models import register_snippet
+from wagtail.snippets.views.snippets import SnippetViewSet
 from wagtail_headless_preview.models import HeadlessPreviewMixin
 
 from .blocks import (
@@ -21,6 +22,7 @@ from .blocks import (
     RoleBlock,
     SkillBarBlock,
     StageCountBlock,
+    StatItemBlock,
     UseCaseBlock,
     WIDGET_TYPE_CHOICES,
 )
@@ -31,7 +33,6 @@ from .blocks import (
 # ---------------------------------------------------------------------------
 
 
-@register_snippet
 class Product(index.Indexed, models.Model):
     """One module in the EvoHR suite. Shared between the homepage suite cards
     and the Solutions page deep-dive sections, so it's edited once."""
@@ -92,6 +93,22 @@ class Product(index.Indexed, models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ProductViewSet(SnippetViewSet):
+    """Promotes Product to its own top-level sidebar icon (rather than being
+    nested one click deeper under the generic "Snippets" menu item) — this is
+    the CMS's most-edited content, so it should be the most discoverable."""
+
+    model = Product
+    menu_label = "Products"
+    menu_icon = "grid"
+    menu_order = 200
+    add_to_admin_menu = True
+    list_display = ["name", "tag", "sort_order"]
+
+
+register_snippet(Product, viewset=ProductViewSet)
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +202,12 @@ class HomePage(HeadlessPreviewMixin, Page):
         default="Start with the core CRM, then turn on the modules your agency actually needs."
     )
 
+    stats_heading = models.CharField(
+        max_length=200, default="EvoHR makes closing placements effortless"
+    )
+    stats_items = StreamField([("stat", StatItemBlock())], blank=True)
+    stats_cta_label = models.CharField(max_length=40, default="Book a demo")
+
     content_panels = Page.content_panels + [
         MultiFieldPanel(
             [
@@ -223,6 +246,14 @@ class HomePage(HeadlessPreviewMixin, Page):
             ],
             heading="Suite section header",
         ),
+        MultiFieldPanel(
+            [
+                FieldPanel("stats_heading"),
+                FieldPanel("stats_items"),
+                FieldPanel("stats_cta_label"),
+            ],
+            heading="Stats banner (black section)",
+        ),
     ]
 
     api_fields = [
@@ -248,6 +279,9 @@ class HomePage(HeadlessPreviewMixin, Page):
         APIField("suite_eyebrow"),
         APIField("suite_title"),
         APIField("suite_subtitle"),
+        APIField("stats_heading"),
+        APIField("stats_items"),
+        APIField("stats_cta_label"),
     ]
 
 
