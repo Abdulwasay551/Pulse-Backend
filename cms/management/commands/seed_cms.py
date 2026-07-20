@@ -32,20 +32,6 @@ def bullets(*items):
 
 PRODUCTS = [
     dict(
-        sort_order=0,
-        tag="CORE",
-        name="EvoHR",
-        short_description="Your recruitment CRM & ATS — candidates, clients, pipelines, and placements in one record.",
-        long_description="The system of record for your desk — every candidate, client, and requisition connected to the same pipeline.",
-        bullets=bullets(
-            "Kanban and list pipeline views per job order",
-            "Client and candidate records with full activity history",
-            "Custom pipeline stages per desk or vertical",
-        ),
-        widget_type="pipeline",
-        widget_stages=stages(("Sourced", 12), ("Interview", 6), ("Offer", 2), ("Placed", 3)),
-    ),
-    dict(
         sort_order=1,
         tag="PAYROLL",
         name="EvoHR Payroll",
