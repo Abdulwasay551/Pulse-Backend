@@ -24,6 +24,7 @@ from .blocks import (
     StageCountBlock,
     StatItemBlock,
     TestimonialBlock,
+    TrustLogoBlock,
     UseCaseBlock,
     WIDGET_TYPE_CHOICES,
 )
@@ -193,7 +194,7 @@ class HomePage(HeadlessPreviewMixin, Page):
         max_length=60, default="42 / 45 timesheets submitted"
     )
 
-    trust_logos = StreamField([("logo", blocks.CharBlock(max_length=60))], blank=True)
+    trust_logos = StreamField([("logo", TrustLogoBlock())], blank=True)
 
     suite_eyebrow = models.CharField(max_length=60, default="The EvoHR suite")
     suite_title = models.CharField(

@@ -1,4 +1,39 @@
+import base64
+
+from django import forms
 from wagtail import blocks
+
+
+class Base64ImageBlock(blocks.FieldBlock):
+    """Renders as a plain file-upload field but stores the result as a
+    base64 data URI string instead of using Wagtail's image/file storage —
+    a deliberate stopgap so logo uploads work without wiring up external
+    media storage (relevant on hosts like Vercel with an ephemeral
+    filesystem). Fine for a handful of small logo images; not a general
+    replacement for Wagtail's image chooser. Because file inputs can't be
+    pre-filled, editing an existing entry without choosing a new file
+    clears the stored image — re-upload it whenever you edit this block.
+    """
+
+    def __init__(self, required=False, help_text=None, **kwargs):
+        self.field = forms.CharField(
+            required=required,
+            help_text=help_text,
+            widget=forms.FileInput(),
+        )
+        super().__init__(**kwargs)
+
+    def value_from_datadict(self, data, files, prefix):
+        upload = files.get(prefix)
+        if upload:
+            content = upload.read()
+            encoded = base64.b64encode(content).decode("ascii")
+            mime = getattr(upload, "content_type", None) or "image/png"
+            return f"data:{mime};base64,{encoded}"
+        return ""
+
+    def clean(self, value):
+        return value or ""
 
 TONE_CHOICES = [
     ("primary", "Primary / success (emerald)"),
@@ -184,3 +219,17 @@ class TestimonialBlock(blocks.StructBlock):
     class Meta:
         icon = "openquote"
         label = "Testimonial"
+
+
+class TrustLogoBlock(blocks.StructBlock):
+    name = blocks.CharBlock(max_length=60, help_text="Company name, used as image alt text")
+    logo_url = blocks.URLBlock(
+        required=False, help_text="Direct URL to the logo image (SVG or PNG) — use this OR upload below"
+    )
+    logo_upload = Base64ImageBlock(
+        required=False, help_text="Or upload a logo image directly (stored inline, see note above)"
+    )
+
+    class Meta:
+        icon = "image"
+        label = "Trust logo"

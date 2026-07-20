@@ -219,16 +219,16 @@ class Command(BaseCommand):
             dashboard_attendance_percent=93,
             dashboard_attendance_subtext="42 / 45 timesheets submitted",
             trust_logos=[
-                ("logo", name)
-                for name in [
-                    "Northbridge Talent",
-                    "Fernwood Staffing",
-                    "Anchorpoint Search",
-                    "Duskline Partners",
-                    "Cascade Recruiting",
-                    "Harborview Group",
-                    "Meridian Staffing",
-                    "Silverline Talent",
+                ("logo", {"name": name, "logo_url": f"https://cdn.simpleicons.org/{slug}"})
+                for name, slug in [
+                    ("Spotify", "spotify"),
+                    ("Airbnb", "airbnb"),
+                    ("Dropbox", "dropbox"),
+                    ("Notion", "notion"),
+                    ("Figma", "figma"),
+                    ("GitHub", "github"),
+                    ("Google", "google"),
+                    ("Asana", "asana"),
                 ]
             ],
             suite_eyebrow="The EvoHR suite",
