@@ -22,6 +22,9 @@ urlpatterns = [
     path('api/health/', health, name='health'),
     # Headless content API consumed by the Next.js frontend
     path('api/cms/v2/', api_router.urls),
+    # Auth (JWT via httpOnly cookie + in-memory access token) and other
+    # non-CMS app API endpoints consumed by the Next.js frontend
+    path('api/', include('core.urls')),
 ]
 
 if settings.DEBUG:

@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'core',
 
@@ -98,6 +99,10 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = os.getenv(
     'DJANGO_CORS_ALLOWED_ORIGINS', 'http://localhost:3000'
 ).split(',')
+
+# The refresh token is set as an httpOnly cookie (see core/cookies.py), so the
+# browser needs permission to send it cross-origin to this API.
+CORS_ALLOW_CREDENTIALS = True
 
 # The separately-deployed Next.js site — linked from the backend landing
 # page, and used as the base for Wagtail's headless preview redirects.
@@ -163,6 +168,14 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Lets users log in with either their username or their email address —
+# ModelBackend stays after it as a fallback (also covers is_staff/is_superuser
+# logins through the Django admin, which only ever submits a username).
+AUTHENTICATION_BACKENDS = [
+    'core.auth_backends.EmailOrUsernameModelBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
@@ -207,7 +220,58 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
 }
+
+# Access token: sent in the `Authorization: Bearer <token>` header, kept
+# in-memory only by the frontend (never persisted to storage, so it can't be
+# read back out by an XSS payload) — short-lived since there's no way to
+# revoke one early.
+#
+# Refresh token: the only thing that actually persists across page loads. It
+# lives in an httpOnly, Secure, SameSite=None cookie (see core/cookies.py) so
+# frontend JS never touches its value either, only the browser does when it
+# calls /api/auth/refresh/. Rotated + blacklisted on every use so a leaked
+# refresh token has a one-time-use window rather than working for its full
+# lifetime.
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=14),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+}
+
+AUTH_COOKIE_NAME = 'evohr_refresh'
+# Non-httpOnly companion flag: middleware/client code can check *whether* a
+# session might exist (to redirect away from /login or /dashboard early)
+# without ever being able to read or forge the actual refresh token.
+AUTH_SESSION_FLAG_COOKIE_NAME = 'evohr_has_session'
+AUTH_COOKIE_SAMESITE = os.getenv('DJANGO_AUTH_COOKIE_SAMESITE', 'Lax' if DEBUG else 'None')
+AUTH_COOKIE_SECURE = os.getenv('DJANGO_AUTH_COOKIE_SECURE', str(not DEBUG)) == 'True'
+
+# Email (password-reset links, demo-request notifications). Defaults to
+# printing messages to the console so local dev works with zero setup —
+# set DJANGO_EMAIL_HOST etc. in the environment to send real mail in
+# production.
+if os.getenv('DJANGO_EMAIL_HOST'):
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.getenv('DJANGO_EMAIL_HOST')
+    EMAIL_PORT = int(os.getenv('DJANGO_EMAIL_PORT', '587'))
+    EMAIL_HOST_USER = os.getenv('DJANGO_EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.getenv('DJANGO_EMAIL_HOST_PASSWORD', '')
+    EMAIL_USE_TLS = os.getenv('DJANGO_EMAIL_USE_TLS', 'True') == 'True'
+else:
+    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+DEFAULT_FROM_EMAIL = os.getenv('DJANGO_DEFAULT_FROM_EMAIL', 'no-reply@evohr.app')
+# Where "Book a Demo" form submissions get emailed for someone to follow up.
+DEMO_REQUEST_NOTIFY_EMAIL = os.getenv('DEMO_REQUEST_NOTIFY_EMAIL', '')
 
 # Wagtail
 WAGTAIL_SITE_NAME = 'EvoHR CMS'
