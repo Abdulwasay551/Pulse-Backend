@@ -25,6 +25,9 @@ urlpatterns = [
     # Auth (JWT via httpOnly cookie + in-memory access token) and other
     # non-CMS app API endpoints consumed by the Next.js frontend
     path('api/', include('core.urls')),
+    # CRM CRUD API backing the authenticated dashboard (candidates, clients,
+    # requisitions, payroll runs), scoped per-user
+    path('api/crm/', include('crm.urls')),
 ]
 
 if settings.DEBUG:
