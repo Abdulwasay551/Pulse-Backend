@@ -7,21 +7,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .activity import log_activity
-from .models import ActivityLog, Candidate, Client, PayrollRun, Requisition
-from .permissions import IsOwner
-from .serializers import (
-    ActivityLogSerializer,
-    CandidateSerializer,
-    ClientSerializer,
-    PayrollRunSerializer,
-    RequisitionSerializer,
-)
+from core.activity import log_activity
+from core.models import ActivityLog
+from core.permissions import IsOwner
+from payroll_benefits.models import PayrollRun
+
+from .models import Candidate, Client, Requisition
+from .serializers import CandidateSerializer, ClientSerializer, RequisitionSerializer
 
 
 class OwnedModelViewSet(viewsets.ModelViewSet):
-    """Every CRM resource is scoped to its owner, both for listing and for
-    object-level access — shared here so each viewset only adds what's
+    """Every Recruit resource is scoped to its owner, both for listing and
+    for object-level access — shared here so each viewset only adds what's
     specific to it."""
 
     permission_classes = [IsAuthenticated, IsOwner]
@@ -81,18 +78,6 @@ class CandidateViewSet(OwnedModelViewSet):
                 )
 
 
-class PayrollRunViewSet(OwnedModelViewSet):
-    queryset = PayrollRun.objects.all()
-    serializer_class = PayrollRunSerializer
-
-    def perform_create(self, serializer):
-        run = serializer.save(owner=self.request.user)
-        if run.status == 'Needs review':
-            log_activity(self.request.user, f'{run.period} payroll needs review', 'amber')
-        else:
-            log_activity(self.request.user, f'{run.period} payroll processed', 'primary')
-
-
 def _add_months(d, months):
     """Same day-of-month `months` away, clamped to the 1st — every caller
     here only ever needs month boundaries, never a specific day."""
@@ -115,9 +100,10 @@ def _relative_time(dt):
 
 
 class DashboardSummaryView(APIView):
-    """Every number here is computed live from the user's own CRM data — the
-    dashboard overview/analytics pages have nothing static left once this is
-    wired up, matching how the rest of the CRUD API works."""
+    """EVO-Recruit's overview/analytics numbers, computed live from the
+    user's own data — nothing here is stored/cached. "Revenue this month"
+    reads from payroll_benefits.PayrollRun since placement-fee revenue is
+    tracked as payroll, not as a Recruit-owned figure."""
 
     permission_classes = [IsAuthenticated]
 

@@ -1,12 +1,12 @@
 # EvoHR Backend
 
-Django backend for **EvoHR** — a recruitment CRM & ATS for staffing agencies, in the vein of RecruitCRM. This service provides:
+Django backend for **EvoHR** — expanding from a recruitment CRM/ATS into a full HCM/ERP suite, organized as five product modules (EVO-Recruit, EVO-People Management, EVO-Talent Management, EVO-Payroll & Benefits, EVO-IT & Asset Management). This service provides:
 
 - A headless **Wagtail CMS** for all public marketing page content (home, pricing, solutions, use cases, who we serve, resources), consumed by the separate [EvoHR frontend](https://github.com/Abdulwasay551/EvoHR-Frontend) over a REST API.
-- A **Django admin** themed with [django-unfold](https://github.com/unfoldadmin/django-unfold), kept separate from the CMS admin and reserved for non-CMS data (users, demo requests, and the CRM app's data).
+- A **Django admin** themed with [django-unfold](https://github.com/unfoldadmin/django-unfold), kept separate from the CMS admin and reserved for non-CMS data (users, demo requests, and each module app's data).
 - A **JWT-based auth API** (`core` app) — register/login/logout, forgot/reset/change password, profile — used by the frontend's real login/signup/dashboard flow.
 - The **"Book a Demo"** lead-capture endpoint behind the marketing site's demo-request form.
-- A **CRM CRUD API** (`crm` app) backing the authenticated dashboard — clients, requisitions, candidates, payroll runs — every record scoped to the user who owns it, plus a live dashboard-summary aggregation endpoint.
+- **One Django app per product module** (see [Module apps](#module-apps) below) — each module's data model is independent of the others, with `core` holding what's genuinely shared (auth, `ActivityLog`, the `IsOwner` permission).
 
 ## Stack
 
@@ -42,7 +42,8 @@ python manage.py runserver
 | `/api/health/` | Health check |
 | `/api/auth/...` | Auth API (see below) |
 | `/api/demo-requests/` | "Book a Demo" form submissions (`POST`, public) |
-| `/api/crm/...` | CRM CRUD API backing the dashboard (see below) |
+| `/api/recruit/...` | EVO-Recruit CRUD API (see [Module apps](#module-apps)) |
+| `/api/payroll-benefits/...` | EVO-Payroll & Benefits CRUD API (see [Module apps](#module-apps)) |
 
 ## Auth API
 
@@ -66,28 +67,44 @@ Login accepts **either a username or an email** in the same `identifier` field (
 
 CORS is configured with `CORS_ALLOW_CREDENTIALS = True` so the browser can send/receive the refresh cookie cross-origin — the frontend's origin must be listed in `DJANGO_CORS_ALLOWED_ORIGINS` (below) or these calls fail with a CORS error, not a 401.
 
-## CRM API
+## Module apps
 
-Everything under `/api/crm/` requires the access token and is scoped **per-user** — there's no team/org concept, so a request only ever sees (and can only ever touch) rows where `owner == request.user`. Accessing another user's object by ID returns a plain 404, not a 403 (so IDs don't even leak existence).
+Every module API requires the access token and is scoped **per-user** — there's no team/org concept, so a request only ever sees (and can only ever touch) rows where `owner == request.user` (enforced by the shared `core.permissions.IsOwner`). Accessing another user's object by ID returns a plain 404, not a 403 (so IDs don't even leak existence).
 
-Standard DRF `ModelViewSet` routes (list/create/retrieve/update/partial_update/destroy) for four resources:
+| App | Status | Models | API base path |
+|---|---|---|---|
+| `recruit` | **Real** | `Client`, `Requisition`, `Candidate` | `/api/recruit/` |
+| `payroll_benefits` | **Real** (payroll only) | `PayrollRun` | `/api/payroll-benefits/` |
+| `people` | Scaffolded, no models yet | — | — |
+| `talent` | Scaffolded, no models yet | — | — |
+| `it_assets` | Scaffolded, no models yet | — | — |
 
-| Base path | Model | Notable read-only computed fields |
+`people`/`talent`/`it_assets` exist as registered Django apps (in `INSTALLED_APPS`) so they're ready to grow into, but have no models, serializers, views, or URLs yet — their frontend module pages are still all "Coming soon" tiles. Add to these apps directly when a module's features start getting built out; don't add unrelated models to `recruit` or `payroll_benefits`.
+
+### EVO-Recruit (`recruit`)
+
+Standard DRF `ModelViewSet` routes (list/create/retrieve/update/partial_update/destroy):
+
+| Path | Model | Notable read-only computed fields |
 |---|---|---|
-| `/api/crm/clients/` | `Client` | `open_roles` — count of that client's non-closed requisitions |
-| `/api/crm/requisitions/` | `Requisition` | `client_name`, `candidates_count` |
-| `/api/crm/candidates/` | `Candidate` | `initials`, `client_name`; `placed_at` is set automatically the moment `stage` becomes `"Placed"` (and cleared if it moves off it again) |
-| `/api/crm/payroll-runs/` | `PayrollRun` | — |
+| `/api/recruit/clients/` | `Client` | `open_roles` — count of that client's non-closed requisitions |
+| `/api/recruit/requisitions/` | `Requisition` | `client_name`, `candidates_count` |
+| `/api/recruit/candidates/` | `Candidate` | `initials`, `client_name`; `placed_at` is set automatically the moment `stage` becomes `"Placed"` (and cleared if it moves off it again) |
 
 Plus one read-only aggregation endpoint:
 
-- `GET /api/crm/dashboard-summary/` — computes the dashboard's overview stats, pipeline-stage counts, candidate-source breakdown, a 6-month placements trend, and the 6 most recent activity-log entries, all live from the user's own rows (nothing here is stored/cached — see `crm/views.py::DashboardSummaryView`).
+- `GET /api/recruit/dashboard-summary/` — computes the dashboard's overview stats, pipeline-stage counts, candidate-source breakdown, a 6-month placements trend, and the 6 most recent activity-log entries, all live from the user's own rows (nothing here is stored/cached — see `recruit/views.py::DashboardSummaryView`). "Revenue this month" reads from `payroll_benefits.PayrollRun` — a deliberate cross-app read, since placement-fee revenue is tracked as payroll, not as a Recruit-owned figure.
 
-Creating/updating a `Candidate` (stage change) or a `PayrollRun` also writes an entry to `ActivityLog`, which is what `dashboard-summary` surfaces as "recent activity" — this happens automatically inside the viewsets' `perform_create`/`perform_update`, not as a separate call the frontend has to make.
+Creating/updating a `Candidate` (stage change) also writes to `core.ActivityLog` via `core.activity.log_activity`, which is what `dashboard-summary` surfaces as "recent activity" — this happens automatically inside the viewset's `perform_create`/`perform_update`, not as a separate call the frontend has to make.
+
+### EVO-Payroll & Benefits (`payroll_benefits`)
+
+- `/api/payroll-benefits/payroll-runs/` — standard `ModelViewSet` for `PayrollRun`. Creating a run also logs to `core.ActivityLog` (tone `amber` if status is `"Needs review"`, else `primary`).
+- Benefits (enrollment, claims, cost analysis) aren't modeled yet — the frontend module page shows them as placeholder tiles.
 
 ### The demo account
 
-`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset — 8 clients, 6 requisitions, 10 candidates, 5 payroll runs, and a matching activity log — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see a populated desk. It's a **real account** with real rows, not a special-cased mode — every other signup just starts with an empty CRM instead. The command is idempotent: re-running it wipes and re-creates only that one user's CRM rows, so it's safe to use to reset the demo account after visitors have poked at it.
+`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset — 8 clients, 6 requisitions, 10 candidates, 5 payroll runs, and a matching activity log — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see a populated desk. It's a **real account** with real rows, not a special-cased mode — every other signup just starts with an empty CRM instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
 
 ## Environment variables
 

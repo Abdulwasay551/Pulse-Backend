@@ -5,7 +5,9 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from crm.models import ActivityLog, Candidate, Client, PayrollRun, Requisition
+from core.models import ActivityLog
+from payroll_benefits.models import PayrollRun
+from recruit.models import Candidate, Client, Requisition
 
 User = get_user_model()
 
@@ -39,8 +41,8 @@ class Command(BaseCommand):
         user.set_password(password)
         user.save()
 
-        # Idempotent: wipe this user's existing CRM rows before reseeding so
-        # the command can be re-run to reset the demo account to a clean
+        # Idempotent: wipe this user's existing rows before reseeding so the
+        # command can be re-run to reset the demo account to a clean
         # baseline (e.g. after visitors have poked at it for a while).
         Candidate.objects.filter(owner=user).delete()
         Requisition.objects.filter(owner=user).delete()

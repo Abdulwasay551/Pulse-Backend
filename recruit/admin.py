@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from .models import ActivityLog, Candidate, Client, PayrollRun, Requisition
+from .models import Candidate, Client, Requisition
 
 
 @admin.register(Client)
@@ -23,17 +23,3 @@ class CandidateAdmin(ModelAdmin):
     list_display = ['name', 'role', 'client', 'owner', 'stage', 'source', 'applied_at']
     list_filter = ['stage', 'source']
     search_fields = ['name', 'role']
-
-
-@admin.register(PayrollRun)
-class PayrollRunAdmin(ModelAdmin):
-    list_display = ['period', 'owner', 'contractors', 'amount', 'status', 'created_at']
-    list_filter = ['status']
-    search_fields = ['period']
-
-
-@admin.register(ActivityLog)
-class ActivityLogAdmin(ModelAdmin):
-    list_display = ['message', 'owner', 'tone', 'created_at']
-    list_filter = ['tone']
-    search_fields = ['message']

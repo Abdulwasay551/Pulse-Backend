@@ -13,7 +13,7 @@ urlpatterns = [
     # real page (Next.js is the public site); point visitors at the two admins.
     path('', landing, name='landing'),
 
-    # Unfold-themed Django admin (for non-CMS models: users, and future CRM data)
+    # Unfold-themed Django admin (for non-CMS models: users, and each module app's data)
     path('admin/', admin.site.urls),
     # Wagtail CMS admin (separate surface, for editing marketing page content)
     path('cms/', include(wagtailadmin_urls)),
@@ -25,9 +25,13 @@ urlpatterns = [
     # Auth (JWT via httpOnly cookie + in-memory access token) and other
     # non-CMS app API endpoints consumed by the Next.js frontend
     path('api/', include('core.urls')),
-    # CRM CRUD API backing the authenticated dashboard (candidates, clients,
-    # requisitions, payroll runs), scoped per-user
-    path('api/crm/', include('crm.urls')),
+    # EVO-Recruit: clients/requisitions/candidates CRUD + dashboard-summary,
+    # scoped per-user. People/Talent/IT-Assets have no API yet — their
+    # frontend module pages are still all "Coming soon" placeholders.
+    path('api/recruit/', include('recruit.urls')),
+    # EVO-Payroll & Benefits: payroll-runs CRUD, scoped per-user. Benefits
+    # (enrollment/claims/cost-analysis) aren't built yet.
+    path('api/payroll-benefits/', include('payroll_benefits.urls')),
 ]
 
 if settings.DEBUG:

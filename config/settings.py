@@ -62,7 +62,15 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
     'core',
-    'crm',
+
+    # EvoHR product modules — each is its own Django app so a module's data
+    # model stays independent of the others (see core for shared/
+    # cross-cutting concerns: auth, ActivityLog, IsOwner permission).
+    'recruit',
+    'payroll_benefits',
+    'people',
+    'talent',
+    'it_assets',
 
     # Wagtail CMS
     'cms',

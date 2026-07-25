@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import ActivityLog, Candidate, Client, PayrollRun, Requisition
+from .models import Candidate, Client, Requisition
 
 
 def initials_for(name: str) -> str:
@@ -70,17 +70,3 @@ class CandidateSerializer(serializers.ModelSerializer):
 
     def validate_requisition(self, requisition):
         return self._validate_owned(requisition, 'requisition')
-
-
-class PayrollRunSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = PayrollRun
-        fields = ['id', 'period', 'contractors', 'amount', 'status', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'created_at', 'updated_at']
-
-
-class ActivityLogSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ActivityLog
-        fields = ['id', 'message', 'tone', 'created_at']
-        read_only_fields = fields
