@@ -19,6 +19,7 @@ from people.models import (
     Survey,
     SurveyResponse,
 )
+from talent.models import Appraisal, CareerPath, CompetencyRating, Course, Enrollment, Goal, SuccessionPlan
 from recruit.models import (
     BackgroundCheck,
     Candidate,
@@ -72,6 +73,7 @@ class Command(BaseCommand):
         PayrollRun.objects.filter(owner=user).delete()
         Employee.objects.filter(owner=user).delete()
         Survey.objects.filter(owner=user).delete()
+        Course.objects.filter(owner=user).delete()
         ActivityLog.objects.filter(owner=user).delete()
 
         clients = {
@@ -316,6 +318,43 @@ class Command(BaseCommand):
             owner=user, employee=diego, from_title='Senior Engineer', to_title='Staff Engineer',
             from_department='Engineering', to_department='Engineering', effective_date=d(9, 1),
             status='Pending', notes='Ready for a staff-level scope based on Q2/Q3 impact.',
+        )
+
+        # EVO-Talent Management demo data
+        Goal.objects.create(
+            owner=user, employee=diego, title='Ship the auth migration', target_date=d(8, 1),
+            status='In Progress', progress=80,
+        )
+        Goal.objects.create(
+            owner=user, employee=tasha, title='Complete HR compliance certification', target_date=d(9, 15),
+            status='Not Started', progress=0,
+        )
+        Appraisal.objects.create(
+            owner=user, employee=diego, period='2026 Mid-Year Review', reviewer='Priya Chandran',
+            overall_rating=4, strengths='Strong technical execution, mentors juniors well.',
+            areas_for_improvement='Could delegate more during crunch periods.', status='Finalized',
+        )
+        CompetencyRating.objects.create(owner=user, employee=diego, competency='System Design', level=4)
+        CompetencyRating.objects.create(owner=user, employee=diego, competency='Mentorship', level=3)
+        CompetencyRating.objects.create(owner=user, employee=tasha, competency='Employment Law', level=3)
+        course = Course.objects.create(
+            owner=user, title='Leadership Fundamentals', description='An intro course on managing people.',
+            duration_hours=6,
+        )
+        Enrollment.objects.create(course=course, employee=eng_manager, status='Completed', completed_at=d(6, 30))
+        Enrollment.objects.create(course=course, employee=diego, status='In Progress')
+        CareerPath.objects.create(
+            owner=user, employee=diego, current_role='Senior Engineer', target_role='Staff Engineer',
+            department='Engineering', target_date=d(12, 1),
+            milestones='Lead a cross-team project; mentor two engineers; present at an internal tech talk.',
+        )
+        SuccessionPlan.objects.create(
+            owner=user, employee=eng_manager, potential_rating='High', performance_rating='High',
+            successor_notes='Strong candidate for Director of Engineering within 12–18 months.', ready_now=False,
+        )
+        SuccessionPlan.objects.create(
+            owner=user, employee=diego, potential_rating='High', performance_rating='Medium',
+            successor_notes='On track for Engineering Manager once staff-level scope is proven.', ready_now=False,
         )
 
         activity_items = [

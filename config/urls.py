@@ -30,10 +30,10 @@ urlpatterns = [
     # EVO-Payroll & Benefits: payroll-runs CRUD, scoped per-user. Benefits
     # (enrollment/claims/cost-analysis) aren't built yet.
     path('api/payroll-benefits/', include('payroll_benefits.urls')),
-    # EVO-People Management: Employee Records (Employee Database, Documents,
-    # Org Chart) is built; Attendance/Engagement/Workforce Dashboard aren't
-    # yet — their frontend sub-module pages are still "Coming soon".
+    # EVO-People Management: fully built out, scoped per-user.
     path('api/people/', include('people.urls')),
+    # EVO-Talent Management: fully built out, scoped per-user.
+    path('api/talent/', include('talent.urls')),
 ]
 
 if settings.DEBUG:
