@@ -2,18 +2,62 @@ from datetime import timedelta
 
 from django.db.models import Sum
 from django.utils import timezone
-from rest_framework import viewsets
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.activity import log_activity
+from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
 from core.models import ActivityLog
 from core.permissions import IsOwner
 from payroll_benefits.models import PayrollRun
 
-from .models import Candidate, Client, Requisition
-from .serializers import CandidateSerializer, ClientSerializer, RequisitionSerializer
+from .ai_screening import score_candidate
+from .models import (
+    BackgroundCheck,
+    Candidate,
+    Client,
+    Offboarding,
+    OffboardingTask,
+    OfferLetter,
+    Onboarding,
+    OnboardingTask,
+    Requisition,
+)
+from .serializers import (
+    BackgroundCheckSerializer,
+    CandidateSerializer,
+    ClientSerializer,
+    OffboardingSerializer,
+    OffboardingTaskSerializer,
+    OfferLetterSerializer,
+    OnboardingSerializer,
+    OnboardingTaskSerializer,
+    RequisitionSerializer,
+)
+
+CLIENT_IMPORT_FIELDS = {
+    'name': 'Name',
+    'industry': 'Industry',
+    'contact_name': 'Contact name',
+    'contact_email': 'Contact email',
+    'status': 'Status',
+}
+CLIENT_REQUIRED_FIELDS = ['name']
+
+CANDIDATE_IMPORT_FIELDS = {
+    'name': 'Name',
+    'role': 'Role',
+    'email': 'Email',
+    'phone': 'Phone',
+    'stage': 'Stage',
+    'source': 'Source',
+    'applied_at': 'Applied at',
+}
+CANDIDATE_REQUIRED_FIELDS = ['name', 'role']
 
 
 class OwnedModelViewSet(viewsets.ModelViewSet):
@@ -37,6 +81,29 @@ class ClientViewSet(OwnedModelViewSet):
     def perform_create(self, serializer):
         client = serializer.save(owner=self.request.user)
         log_activity(self.request.user, f'New client added: {client.name}', 'neutral')
+
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        clients = self.get_queryset().order_by('name')
+        header = ['Name', 'Industry', 'Contact name', 'Contact email', 'Status']
+        rows = [[c.name, c.industry, c.contact_name, c.contact_email, c.status] for c in clients]
+        return csv_response('clients.csv', header, rows)
+
+    @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
+    def import_preview(self, request):
+        return _import_preview(request, CLIENT_IMPORT_FIELDS)
+
+    @action(detail=False, methods=['post'], url_path='import/commit', parser_classes=[JSONParser])
+    def import_commit(self, request):
+        return _import_commit(
+            request,
+            serializer_class=ClientSerializer,
+            required_fields=CLIENT_REQUIRED_FIELDS,
+            valid_fields=set(CLIENT_IMPORT_FIELDS),
+            on_created=lambda user, count: log_activity(
+                user, f'Imported {count} client{"s" if count != 1 else ""} from CSV', 'neutral'
+            ),
+        )
 
 
 class RequisitionViewSet(OwnedModelViewSet):
@@ -76,6 +143,206 @@ class CandidateViewSet(OwnedModelViewSet):
                     f'{candidate.name} advanced to {candidate.stage} for {candidate.role}',
                     'primary',
                 )
+
+    @action(detail=True, methods=['post'])
+    def screen(self, request, pk=None):
+        """Runs AI resume screening for this candidate against their linked
+        requisition's requirements (see recruit/ai_screening.py — a
+        heuristic scorer today, drop-in replaceable with a real LLM call
+        later)."""
+        candidate = self.get_object()
+        requisition = candidate.requisition
+        score, notes = score_candidate(
+            candidate.resume_text,
+            requisition.title if requisition else '',
+            requisition.requirements if requisition else '',
+        )
+        candidate.ai_score = score
+        candidate.ai_score_notes = notes
+        candidate.save(update_fields=['ai_score', 'ai_score_notes', 'updated_at'])
+        return Response(CandidateSerializer(candidate, context={'request': request}).data)
+
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        candidates = self.get_queryset().order_by('name')
+        header = ['Name', 'Role', 'Email', 'Phone', 'Stage', 'Source', 'Applied at', 'AI score']
+        rows = [
+            [c.name, c.role, c.email, c.phone, c.stage, c.source, c.applied_at, c.ai_score]
+            for c in candidates
+        ]
+        return csv_response('candidates.csv', header, rows)
+
+    @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
+    def import_preview(self, request):
+        return _import_preview(request, CANDIDATE_IMPORT_FIELDS)
+
+    @action(detail=False, methods=['post'], url_path='import/commit', parser_classes=[JSONParser])
+    def import_commit(self, request):
+        return _import_commit(
+            request,
+            serializer_class=CandidateSerializer,
+            required_fields=CANDIDATE_REQUIRED_FIELDS,
+            valid_fields=set(CANDIDATE_IMPORT_FIELDS),
+            on_created=lambda user, count: log_activity(
+                user, f'Imported {count} candidate{"s" if count != 1 else ""} from CSV', 'neutral'
+            ),
+        )
+
+
+class OfferLetterViewSet(OwnedModelViewSet):
+    queryset = OfferLetter.objects.select_related('candidate').all()
+    serializer_class = OfferLetterSerializer
+
+    def perform_create(self, serializer):
+        offer = serializer.save(owner=self.request.user)
+        log_activity(self.request.user, f'Offer letter drafted for {offer.candidate.name}', 'neutral')
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        offer = serializer.save()
+        if offer.status != previous_status:
+            if offer.status == 'Sent' and not offer.sent_at:
+                offer.sent_at = timezone.now()
+                offer.save(update_fields=['sent_at'])
+                log_activity(self.request.user, f'Offer letter sent to {offer.candidate.name}', 'primary')
+            elif offer.status == 'Signed' and not offer.signed_at:
+                offer.signed_at = timezone.now()
+                offer.save(update_fields=['signed_at'])
+                log_activity(self.request.user, f'{offer.candidate.name} signed their offer letter', 'primary')
+            elif offer.status == 'Declined':
+                log_activity(self.request.user, f'{offer.candidate.name} declined their offer letter', 'maroon')
+
+
+class BackgroundCheckViewSet(OwnedModelViewSet):
+    queryset = BackgroundCheck.objects.select_related('candidate').all()
+    serializer_class = BackgroundCheckSerializer
+
+    def perform_create(self, serializer):
+        check = serializer.save(owner=self.request.user, initiated_at=timezone.now())
+        log_activity(
+            self.request.user, f'{check.get_check_type_display()} check started for {check.candidate.name}', 'neutral'
+        )
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        check = serializer.save()
+        if check.status != previous_status and check.status in ('Cleared', 'Flagged') and not check.completed_at:
+            check.completed_at = timezone.now()
+            check.save(update_fields=['completed_at'])
+            tone = 'primary' if check.status == 'Cleared' else 'maroon'
+            log_activity(self.request.user, f'{check.candidate.name} background check: {check.status}', tone)
+
+
+class OnboardingViewSet(OwnedModelViewSet):
+    queryset = Onboarding.objects.select_related('candidate').prefetch_related('tasks').all()
+    serializer_class = OnboardingSerializer
+
+    def perform_create(self, serializer):
+        onboarding = serializer.save(owner=self.request.user)
+        log_activity(self.request.user, f'Onboarding started for {onboarding.candidate.name}', 'neutral')
+
+
+class OnboardingTaskViewSet(viewsets.ModelViewSet):
+    """No IsOwner here — OnboardingTask has no `owner` field of its own
+    (only its parent Onboarding does), so that permission's `obj.owner_id`
+    check doesn't apply. Ownership is enforced entirely by scoping the
+    queryset to the parent's owner, same "404 not 403" effect."""
+
+    queryset = OnboardingTask.objects.select_related('onboarding').all()
+    serializer_class = OnboardingTaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(onboarding__owner=self.request.user)
+
+
+class OffboardingViewSet(OwnedModelViewSet):
+    queryset = Offboarding.objects.select_related('candidate').prefetch_related('tasks').all()
+    serializer_class = OffboardingSerializer
+
+    def perform_create(self, serializer):
+        offboarding = serializer.save(owner=self.request.user)
+        log_activity(self.request.user, f'Offboarding started for {offboarding.candidate.name}', 'amber')
+
+
+class OffboardingTaskViewSet(viewsets.ModelViewSet):
+    """Same reasoning as OnboardingTaskViewSet — no IsOwner, ownership comes
+    from scoping the queryset to the parent Offboarding's owner."""
+
+    queryset = OffboardingTask.objects.select_related('offboarding').all()
+    serializer_class = OffboardingTaskSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(offboarding__owner=self.request.user)
+
+
+def _import_preview(request, field_labels):
+    upload = request.FILES.get('file')
+    if not upload:
+        return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        columns, rows = parse_csv_upload(upload)
+    except ValueError as exc:
+        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    return Response(
+        {
+            'columns': columns,
+            'rows': rows,
+            'row_count': len(rows),
+            'suggested_mapping': suggest_mapping(columns, field_labels),
+            'fields': field_labels,
+        }
+    )
+
+
+def _import_commit(request, *, serializer_class, required_fields, valid_fields, on_created):
+    columns = request.data.get('columns')
+    rows = request.data.get('rows')
+    mapping = request.data.get('mapping')
+    if not isinstance(columns, list) or not isinstance(rows, list) or not isinstance(mapping, dict):
+        return Response(
+            {'detail': 'Expected {columns, rows, mapping} from the preview step.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    mapping = {k: v for k, v in mapping.items() if v in valid_fields}
+    mapped_fields = set(mapping.values())
+    missing_required = [f for f in required_fields if f not in mapped_fields]
+    if missing_required:
+        return Response(
+            {'detail': f'Map a column to the required field(s): {", ".join(missing_required)}.'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    created = 0
+    errors = []
+    for i, row in enumerate(rows, start=2):  # row 1 is the header
+        record = row_to_record(columns, row, mapping)
+        # Blank optional cells shouldn't override a model default (e.g. an
+        # empty "Applied at" column should still fall back to today, not
+        # fail validation as an empty date string) — only pass through
+        # values that were actually provided.
+        record = {k: v for k, v in record.items() if v != ''}
+        missing = [f for f in required_fields if not record.get(f)]
+        if missing:
+            errors.append(f'Row {i}: {", ".join(missing)} is required')
+            continue
+
+        serializer = serializer_class(data=record, context={'request': request})
+        if not serializer.is_valid():
+            first_field, first_errors = next(iter(serializer.errors.items()))
+            errors.append(f'Row {i}: {first_field} — {first_errors[0]}')
+            continue
+
+        serializer.save(owner=request.user)
+        created += 1
+
+    if created:
+        on_created(request.user, created)
+
+    return Response({'created': created, 'errors': errors})
 
 
 def _add_months(d, months):

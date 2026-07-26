@@ -51,6 +51,9 @@ class Requisition(models.Model):
     recruiter = models.CharField(max_length=150, blank=True)
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='Medium')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Open')
+    # Required skills/keywords, one per line or comma-separated — this is
+    # what AI resume screening matches a candidate's resume_text against.
+    requirements = models.TextField(blank=True)
     posted_at = models.DateField(default=date.today)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -81,6 +84,8 @@ class Candidate(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='candidates')
     name = models.CharField(max_length=150)
     role = models.CharField(max_length=150)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
     client = models.ForeignKey(
         Client, on_delete=models.SET_NULL, null=True, blank=True, related_name='candidates'
     )
@@ -94,6 +99,15 @@ class Candidate(models.Model):
     # is what the placements-per-month trend is computed from, independent of
     # whatever applied_at was.
     placed_at = models.DateField(null=True, blank=True)
+    # Resume Pool is just candidates viewed through this lens (no active
+    # requisition) — see the frontend's /dashboard/resume-pool page — rather
+    # than a separate duplicate model.
+    resume_file = models.FileField(upload_to='resumes/%Y/%m/', null=True, blank=True)
+    resume_text = models.TextField(
+        blank=True, help_text='Plain-text resume content, used for AI screening keyword matching.'
+    )
+    ai_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    ai_score_notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -109,3 +123,172 @@ class Candidate(models.Model):
         elif self.stage != 'Placed':
             self.placed_at = None
         super().save(*args, **kwargs)
+
+
+class OfferLetter(models.Model):
+    STATUS_CHOICES = [
+        ('Draft', 'Draft'),
+        ('Sent', 'Sent'),
+        ('Signed', 'Signed'),
+        ('Declined', 'Declined'),
+    ]
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='offer_letters')
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name='offer_letters')
+    job_title = models.CharField(max_length=150)
+    salary = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    body = models.TextField(help_text='The offer letter content itself.')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Draft')
+    sent_at = models.DateTimeField(null=True, blank=True)
+    # Signature capture here is a manual "mark as signed" action, not a real
+    # e-signature vendor integration (DocuSign/HelloSign etc.) — that needs
+    # an account + API keys nobody has provisioned yet.
+    signed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Offer — {self.candidate.name} ({self.job_title})'
+
+
+class BackgroundCheck(models.Model):
+    CHECK_TYPE_CHOICES = [
+        ('Criminal', 'Criminal'),
+        ('Employment', 'Employment history'),
+        ('Education', 'Education'),
+        ('Credit', 'Credit'),
+        ('Reference', 'Reference'),
+    ]
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Progress', 'In progress'),
+        ('Cleared', 'Cleared'),
+        ('Flagged', 'Flagged'),
+    ]
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='background_checks')
+    candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name='background_checks')
+    check_type = models.CharField(max_length=20, choices=CHECK_TYPE_CHOICES)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    # Internal tracking only — wiring up a real vendor (Checkr, Sterling,
+    # etc.) needs that vendor's account + API keys, which nobody has
+    # provisioned yet. This still gives real workflow value: initiate,
+    # track, and record the outcome.
+    initiated_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.get_check_type_display()} — {self.candidate.name}'
+
+
+class Onboarding(models.Model):
+    STATUS_CHOICES = [
+        ('Not Started', 'Not started'),
+        ('In Progress', 'In progress'),
+        ('Completed', 'Completed'),
+    ]
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='onboardings')
+    candidate = models.OneToOneField(Candidate, on_delete=models.CASCADE, related_name='onboarding')
+    start_date = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Not Started')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Onboarding — {self.candidate.name}'
+
+
+class OnboardingTask(models.Model):
+    CATEGORY_CHOICES = [
+        ('Pre-Joining Documents', 'Pre-Joining documents'),
+        ('Orientation', 'Orientation'),
+        ('Training Plan', 'Training plan and schedule'),
+        ('Portal Access', 'Portal access and installations'),
+        ('Probation Evaluation', 'Probation evaluation'),
+        ('Device Assignment', 'Device assignment'),
+    ]
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Progress', 'In progress'),
+        ('Done', 'Done'),
+    ]
+
+    onboarding = models.ForeignKey(Onboarding, on_delete=models.CASCADE, related_name='tasks')
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES)
+    title = models.CharField(max_length=150)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    due_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'created_at']
+
+    def __str__(self):
+        return f'{self.category}: {self.title}'
+
+
+class Offboarding(models.Model):
+    STATUS_CHOICES = [
+        ('Not Started', 'Not started'),
+        ('In Progress', 'In progress'),
+        ('Completed', 'Completed'),
+    ]
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='offboardings')
+    candidate = models.OneToOneField(Candidate, on_delete=models.CASCADE, related_name='offboarding')
+    last_working_day = models.DateField()
+    reason = models.CharField(max_length=200, blank=True)
+    rehire_eligible = models.BooleanField(default=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Not Started')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Offboarding — {self.candidate.name}'
+
+
+class OffboardingTask(models.Model):
+    CATEGORY_CHOICES = [
+        ('Documents Checklist', 'Documents checklist'),
+        ('Access Status', 'Access status'),
+        ('Hardware Clearance', 'Hardware clearance'),
+    ]
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Progress', 'In progress'),
+        ('Done', 'Done'),
+    ]
+
+    offboarding = models.ForeignKey(Offboarding, on_delete=models.CASCADE, related_name='tasks')
+    category = models.CharField(max_length=30, choices=CATEGORY_CHOICES)
+    title = models.CharField(max_length=150)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    due_date = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['category', 'created_at']
+
+    def __str__(self):
+        return f'{self.category}: {self.title}'

@@ -73,7 +73,7 @@ Every module API requires the access token and is scoped **per-user** — there'
 
 | App | Status | Models | API base path |
 |---|---|---|---|
-| `recruit` | **Real** | `Client`, `Requisition`, `Candidate` | `/api/recruit/` |
+| `recruit` | **Real** | `Client`, `Requisition`, `Candidate`, `OfferLetter`, `BackgroundCheck`, `Onboarding`+`OnboardingTask`, `Offboarding`+`OffboardingTask` | `/api/recruit/` |
 | `payroll_benefits` | **Real** (payroll only) | `PayrollRun` | `/api/payroll-benefits/` |
 | `people` | Scaffolded, no models yet | — | — |
 | `talent` | Scaffolded, no models yet | — | — |
@@ -89,13 +89,27 @@ Standard DRF `ModelViewSet` routes (list/create/retrieve/update/partial_update/d
 |---|---|---|
 | `/api/recruit/clients/` | `Client` | `open_roles` — count of that client's non-closed requisitions |
 | `/api/recruit/requisitions/` | `Requisition` | `client_name`, `candidates_count` |
-| `/api/recruit/candidates/` | `Candidate` | `initials`, `client_name`; `placed_at` is set automatically the moment `stage` becomes `"Placed"` (and cleared if it moves off it again) |
+| `/api/recruit/candidates/` | `Candidate` | `initials`, `client_name`, `requisition_title`; `placed_at` is set automatically the moment `stage` becomes `"Placed"` (and cleared if it moves off it again) |
+| `/api/recruit/offer-letters/` | `OfferLetter` | `candidate_detail`; `sent_at`/`signed_at` are set automatically the moment `status` transitions to `"Sent"`/`"Signed"` |
+| `/api/recruit/background-checks/` | `BackgroundCheck` | `candidate_detail`; `completed_at` is set automatically the moment `status` transitions to `"Cleared"`/`"Flagged"` |
+| `/api/recruit/onboardings/` | `Onboarding` | `candidate_detail`, nested `tasks`, `progress` (% of tasks marked `"Done"`) |
+| `/api/recruit/onboarding-tasks/` | `OnboardingTask` | Scoped via `onboarding__owner`, not its own `IsOwner` check — see note below |
+| `/api/recruit/offboardings/` | `Offboarding` | `candidate_detail`, nested `tasks`, `progress` |
+| `/api/recruit/offboarding-tasks/` | `OffboardingTask` | Scoped via `offboarding__owner`, not its own `IsOwner` check |
 
-Plus one read-only aggregation endpoint:
+Plus:
 
 - `GET /api/recruit/dashboard-summary/` — computes the dashboard's overview stats, pipeline-stage counts, candidate-source breakdown, a 6-month placements trend, and the 6 most recent activity-log entries, all live from the user's own rows (nothing here is stored/cached — see `recruit/views.py::DashboardSummaryView`). "Revenue this month" reads from `payroll_benefits.PayrollRun` — a deliberate cross-app read, since placement-fee revenue is tracked as payroll, not as a Recruit-owned figure.
+- `POST /api/recruit/candidates/{id}/screen/` — runs AI resume screening (see below) and returns the updated candidate.
+- `GET /api/recruit/clients/export/` and `/candidates/export/` — CSV export of the user's own rows.
+- `POST /api/recruit/clients/import/preview/` and `/candidates/import/preview/` (multipart, `file`) — parses an uploaded CSV and returns its columns, all parsed rows, a suggested column→field mapping, and the full set of importable fields.
+- `POST /api/recruit/clients/import/commit/` and `/candidates/import/commit/` (JSON, `{columns, rows, mapping}` from the preview step) — validates each row through the resource's normal serializer (proper type coercion + per-row error messages) and creates the valid ones; returns `{created, errors}`.
 
-Creating/updating a `Candidate` (stage change) also writes to `core.ActivityLog` via `core.activity.log_activity`, which is what `dashboard-summary` surfaces as "recent activity" — this happens automatically inside the viewset's `perform_create`/`perform_update`, not as a separate call the frontend has to make.
+Creating/updating a `Candidate` (stage change) also writes to `core.ActivityLog` via `core.activity.log_activity`, which is what `dashboard-summary` surfaces as "recent activity" — this happens automatically inside the viewset's `perform_create`/`perform_update`, not as a separate call the frontend has to make. The same pattern extends to offer letters, background checks, onboarding, and offboarding.
+
+**AI resume screening** (`recruit/ai_screening.py`) is a heuristic keyword/skill-overlap scorer — it matches words in `Candidate.resume_text` against the linked `Requisition.requirements` (and title) and returns a 0–100 score plus a short explanation of which keywords matched. It's a real, working feature today, not a stub — but it's deliberately built as a drop-in-replaceable placeholder for a future real LLM call, since no LLM vendor account is provisioned for this project yet. Same reasoning for `OfferLetter` (draft → sent → signed/declined is tracked and confirmed manually, not through a real e-signature vendor) and `BackgroundCheck` (status is tracked internally, not through a real vendor like Checkr/Sterling) — both are honest placeholders for integrations that need a vendor account nobody has provisioned.
+
+CSV import is a stateless two-step flow (`core/csv_io.py`) — the preview step does no server-side storage; it hands the *entire* parsed CSV back to the frontend, which round-trips it back unchanged (plus the user-confirmed column mapping) on commit. Capped at 5,000 rows per import.
 
 ### EVO-Payroll & Benefits (`payroll_benefits`)
 
@@ -104,7 +118,7 @@ Creating/updating a `Candidate` (stage change) also writes to `core.ActivityLog`
 
 ### The demo account
 
-`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset — 8 clients, 6 requisitions, 10 candidates, 5 payroll runs, and a matching activity log — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see a populated desk. It's a **real account** with real rows, not a special-cased mode — every other signup just starts with an empty CRM instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
+`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs, a matching activity log, plus one sample offer letter, background check, in-progress onboarding (with tasks across all 6 categories), and in-progress offboarding (with tasks across all 3 categories) — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every EVO-Recruit feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts with an empty CRM instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
 
 ## Environment variables
 
