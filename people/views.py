@@ -1,7 +1,9 @@
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -9,8 +11,29 @@ from core.activity import log_activity
 from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
 from core.permissions import IsOwner
 
-from .models import Employee, EmployeeDocument
-from .serializers import EmployeeDocumentSerializer, EmployeeSerializer
+from .models import (
+    AttendanceRecord,
+    Employee,
+    EmployeeDocument,
+    LeaveRequest,
+    PromotionRequest,
+    Recognition,
+    Shift,
+    Survey,
+    SurveyResponse,
+)
+from .serializers import (
+    AttendanceRecordSerializer,
+    EmployeeDocumentSerializer,
+    EmployeePortalSerializer,
+    EmployeeSerializer,
+    LeaveRequestSerializer,
+    PromotionRequestSerializer,
+    RecognitionSerializer,
+    ShiftSerializer,
+    SurveyResponseSerializer,
+    SurveySerializer,
+)
 
 EMPLOYEE_IMPORT_FIELDS = {
     'name': 'Name',
@@ -125,6 +148,121 @@ class EmployeeDocumentViewSet(viewsets.ModelViewSet):
         return self.queryset.filter(employee__owner=self.request.user)
 
 
+class EmployeePortalView(APIView):
+    """The public, no-login profile page an employee sees at their own
+    portal link (frontend: /employee-portal/[token]) — same reasoning as
+    EVO-Recruit's CandidatePortalView."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        employee = get_object_or_404(Employee, portal_token=token)
+        return Response(EmployeePortalSerializer(employee).data)
+
+
+class OwnedByEmployeeViewSet(viewsets.ModelViewSet):
+    """Shared base for the Attendance Management resources (AttendanceRecord,
+    Shift, LeaveRequest) — each has its own `owner` field (unlike
+    EmployeeDocument), so plain IsOwner + owner-filtered queryset works."""
+
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get_queryset(self):
+        return self.queryset.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
+class AttendanceRecordViewSet(OwnedByEmployeeViewSet):
+    queryset = AttendanceRecord.objects.select_related('employee').all()
+    serializer_class = AttendanceRecordSerializer
+
+
+class ShiftViewSet(OwnedByEmployeeViewSet):
+    queryset = Shift.objects.select_related('employee').all()
+    serializer_class = ShiftSerializer
+
+
+class LeaveRequestViewSet(OwnedByEmployeeViewSet):
+    queryset = LeaveRequest.objects.select_related('employee').all()
+    serializer_class = LeaveRequestSerializer
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        leave = serializer.save()
+        if leave.status != previous_status and leave.status in ('Approved', 'Rejected'):
+            tone = 'primary' if leave.status == 'Approved' else 'maroon'
+            log_activity(self.request.user, f'{leave.employee.name}’s {leave.leave_type} leave {leave.status.lower()}', tone)
+
+
+class SurveyViewSet(viewsets.ModelViewSet):
+    queryset = Survey.objects.prefetch_related('responses__employee').all()
+    serializer_class = SurveySerializer
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get_queryset(self):
+        return self.queryset.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+
+class SurveyResponseViewSet(viewsets.ModelViewSet):
+    """No IsOwner — SurveyResponse has no `owner` field of its own, scoped
+    via its parent Survey's owner, same reasoning as EmployeeDocument."""
+
+    queryset = SurveyResponse.objects.select_related('employee', 'survey').all()
+    serializer_class = SurveyResponseSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(survey__owner=self.request.user)
+
+
+class RecognitionViewSet(viewsets.ModelViewSet):
+    queryset = Recognition.objects.select_related('employee').all()
+    serializer_class = RecognitionSerializer
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get_queryset(self):
+        return self.queryset.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        recognition = serializer.save(owner=self.request.user)
+        log_activity(self.request.user, f'{recognition.employee.name} recognized: {recognition.message[:60]}', 'primary')
+
+
+class PromotionRequestViewSet(viewsets.ModelViewSet):
+    queryset = PromotionRequest.objects.select_related('employee').all()
+    serializer_class = PromotionRequestSerializer
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get_queryset(self):
+        return self.queryset.filter(owner=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        promo = serializer.save()
+        if promo.status != previous_status and promo.status == 'Approved':
+            # Reflect the promotion/transfer straight onto the employee's
+            # own record — the whole point of the workflow is that approving
+            # it actually changes their title/department, not just logs it.
+            changed = False
+            if promo.to_title:
+                promo.employee.job_title = promo.to_title
+                changed = True
+            if promo.to_department:
+                promo.employee.department = promo.to_department
+                changed = True
+            if changed:
+                promo.employee.save(update_fields=['job_title', 'department'])
+            log_activity(self.request.user, f'{promo.employee.name} promoted/transferred to {promo.to_title or promo.to_department}', 'primary')
+
+
 class PeopleDashboardSummaryView(APIView):
     """EVO-People's overview numbers, computed live from the user's own
     employee rows — nothing here is stored/cached."""
@@ -136,6 +274,7 @@ class PeopleDashboardSummaryView(APIView):
         total = employees.count()
         active = employees.filter(status='Active').count()
         on_leave = employees.filter(status='On Leave').count()
+        terminated = employees.filter(status='Terminated').count()
 
         department_counts = {}
         for dept in employees.exclude(department='').values_list('department', flat=True):
@@ -150,15 +289,30 @@ class PeopleDashboardSummaryView(APIView):
             for value, label in Employee.STATUS_CHOICES
         ]
 
+        # Attrition rate — a simple, honest headline KPI (terminated ÷ total
+        # ever employed) rather than a fabricated historical trend, since
+        # there's no month-by-month headcount snapshot stored anywhere.
+        attrition_rate = round(terminated / total * 100) if total else 0
+
+        pending_leave = LeaveRequest.objects.filter(owner=request.user, status='Pending').count()
+        pending_promotions = PromotionRequest.objects.filter(owner=request.user, status='Pending').count()
+        open_surveys = Survey.objects.filter(owner=request.user, is_open=True).count()
+
         return Response(
             {
                 'overview_stats': [
                     {'label': 'Total employees', 'value': str(total), 'change': '', 'href': '/dashboard/employee-database'},
                     {'label': 'Active', 'value': str(active), 'change': '', 'href': '/dashboard/employee-database'},
-                    {'label': 'On leave', 'value': str(on_leave), 'change': '', 'href': '/dashboard/employee-database'},
+                    {'label': 'On leave', 'value': str(on_leave), 'change': '', 'href': '/dashboard/leave-requests'},
                     {'label': 'Departments', 'value': str(len(department_counts)), 'change': '', 'href': '/dashboard/org-chart'},
                 ],
                 'department_breakdown': department_breakdown,
                 'status_breakdown': status_breakdown,
+                'kpis': [
+                    {'label': 'Attrition rate', 'value': f'{attrition_rate}%', 'href': '/dashboard/employee-database'},
+                    {'label': 'Pending leave requests', 'value': str(pending_leave), 'href': '/dashboard/leave-requests'},
+                    {'label': 'Pending promotions', 'value': str(pending_promotions), 'href': '/dashboard/promotions'},
+                    {'label': 'Open surveys', 'value': str(open_surveys), 'href': '/dashboard/surveys'},
+                ],
             }
         )

@@ -9,7 +9,16 @@ from django.utils import timezone
 
 from core.models import ActivityLog
 from payroll_benefits.models import PayrollRun
-from people.models import Employee
+from people.models import (
+    AttendanceRecord,
+    Employee,
+    LeaveRequest,
+    PromotionRequest,
+    Recognition,
+    Shift,
+    Survey,
+    SurveyResponse,
+)
 from recruit.models import (
     BackgroundCheck,
     Candidate,
@@ -62,6 +71,7 @@ class Command(BaseCommand):
         Client.objects.filter(owner=user).delete()
         PayrollRun.objects.filter(owner=user).delete()
         Employee.objects.filter(owner=user).delete()
+        Survey.objects.filter(owner=user).delete()
         ActivityLog.objects.filter(owner=user).delete()
 
         clients = {
@@ -254,11 +264,11 @@ class Command(BaseCommand):
             owner=user, name='Priya Chandran', email='priya.chandran@evohr.demo', job_title='Engineering Manager',
             department='Engineering', manager=cto, hire_date=d(3, 4), status='Active',
         )
-        Employee.objects.create(
+        diego = Employee.objects.create(
             owner=user, name='Diego Fernandez', email='diego.fernandez@evohr.demo', job_title='Senior Engineer',
             department='Engineering', manager=eng_manager, hire_date=d(4, 18), status='Active',
         )
-        Employee.objects.create(
+        sofia = Employee.objects.create(
             owner=user, name='Sofia Marin', email='sofia.marin@evohr.demo', job_title='Engineer',
             department='Engineering', manager=eng_manager, hire_date=d(6, 2), status='On Leave',
         )
@@ -266,9 +276,46 @@ class Command(BaseCommand):
             owner=user, name='Jordan Ellis', email='jordan.ellis@evohr.demo', job_title='Head of People',
             department='People Ops', hire_date=d(2, 9), status='Active',
         )
-        Employee.objects.create(
+        tasha = Employee.objects.create(
             owner=user, name='Tasha Reyes', email='tasha.reyes@evohr.demo', job_title='HR Coordinator',
             department='People Ops', manager=hr_lead, hire_date=d(5, 20), status='Active',
+        )
+
+        # Attendance Management
+        AttendanceRecord.objects.create(
+            owner=user, employee=diego, date=d(7, 24), clock_in='09:02', clock_out='18:15', overtime_hours=1.25,
+        )
+        AttendanceRecord.objects.create(
+            owner=user, employee=tasha, date=d(7, 24), clock_in='08:55', clock_out='17:30',
+        )
+        Shift.objects.create(
+            owner=user, employee=diego, date=d(7, 28), start_time='09:00', end_time='17:30',
+            notes='On-call for the Engineering deploy window.',
+        )
+        LeaveRequest.objects.create(
+            owner=user, employee=sofia, leave_type='Sick', start_date=d(7, 22), end_date=d(7, 29),
+            status='Approved', reason='Recovering from minor surgery.',
+        )
+        LeaveRequest.objects.create(
+            owner=user, employee=tasha, leave_type='Vacation', start_date=d(8, 10), end_date=d(8, 14),
+            status='Pending', reason='Family trip.',
+        )
+
+        # Employee Engagement
+        pulse = Survey.objects.create(
+            owner=user, kind='Pulse Check', title='How was your week?',
+            question='On a scale of 1–5, how manageable was your workload this week?', is_open=True,
+        )
+        SurveyResponse.objects.create(survey=pulse, employee=diego, rating=4, response_text='Busy but good.')
+        SurveyResponse.objects.create(survey=pulse, employee=eng_manager, rating=3, response_text='A bit stretched with the release.')
+        Recognition.objects.create(
+            owner=user, employee=diego, given_by='Priya Chandran',
+            message='Shipped the auth migration a full week ahead of schedule — great work under pressure.',
+        )
+        PromotionRequest.objects.create(
+            owner=user, employee=diego, from_title='Senior Engineer', to_title='Staff Engineer',
+            from_department='Engineering', to_department='Engineering', effective_date=d(9, 1),
+            status='Pending', notes='Ready for a staff-level scope based on Q2/Q3 impact.',
         )
 
         activity_items = [
