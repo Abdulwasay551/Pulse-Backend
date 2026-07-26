@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from core.models import ActivityLog
 from payroll_benefits.models import PayrollRun
+from people.models import Employee
 from recruit.models import (
     BackgroundCheck,
     Candidate,
@@ -60,6 +61,7 @@ class Command(BaseCommand):
         Requisition.objects.filter(owner=user).delete()
         Client.objects.filter(owner=user).delete()
         PayrollRun.objects.filter(owner=user).delete()
+        Employee.objects.filter(owner=user).delete()
         ActivityLog.objects.filter(owner=user).delete()
 
         clients = {
@@ -240,6 +242,34 @@ class Command(BaseCommand):
             PayrollRun.objects.create(
                 owner=user, period=period, contractors=contractors, amount=amount, status=status,
             )
+
+        # EVO-People Management demo data — a small org chart across two
+        # departments, so Employee Database/Org Chart/the People dashboard
+        # all show something real out of the box.
+        cto = Employee.objects.create(
+            owner=user, name='Marcus Webb', email='marcus.webb@evohr.demo', job_title='CTO',
+            department='Engineering', hire_date=d(1, 12), status='Active',
+        )
+        eng_manager = Employee.objects.create(
+            owner=user, name='Priya Chandran', email='priya.chandran@evohr.demo', job_title='Engineering Manager',
+            department='Engineering', manager=cto, hire_date=d(3, 4), status='Active',
+        )
+        Employee.objects.create(
+            owner=user, name='Diego Fernandez', email='diego.fernandez@evohr.demo', job_title='Senior Engineer',
+            department='Engineering', manager=eng_manager, hire_date=d(4, 18), status='Active',
+        )
+        Employee.objects.create(
+            owner=user, name='Sofia Marin', email='sofia.marin@evohr.demo', job_title='Engineer',
+            department='Engineering', manager=eng_manager, hire_date=d(6, 2), status='On Leave',
+        )
+        hr_lead = Employee.objects.create(
+            owner=user, name='Jordan Ellis', email='jordan.ellis@evohr.demo', job_title='Head of People',
+            department='People Ops', hire_date=d(2, 9), status='Active',
+        )
+        Employee.objects.create(
+            owner=user, name='Tasha Reyes', email='tasha.reyes@evohr.demo', job_title='HR Coordinator',
+            department='People Ops', manager=hr_lead, hire_date=d(5, 20), status='Active',
+        )
 
         activity_items = [
             ('Ava Thompson advanced to Interview for Senior Backend Engineer', 'primary'),

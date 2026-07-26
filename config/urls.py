@@ -25,13 +25,15 @@ urlpatterns = [
     # Auth (JWT via httpOnly cookie + in-memory access token) and other
     # non-CMS app API endpoints consumed by the Next.js frontend
     path('api/', include('core.urls')),
-    # EVO-Recruit: clients/requisitions/candidates CRUD + dashboard-summary,
-    # scoped per-user. People/Talent/IT-Assets have no API yet — their
-    # frontend module pages are still all "Coming soon" placeholders.
+    # EVO-Recruit: fully built out, scoped per-user.
     path('api/recruit/', include('recruit.urls')),
     # EVO-Payroll & Benefits: payroll-runs CRUD, scoped per-user. Benefits
     # (enrollment/claims/cost-analysis) aren't built yet.
     path('api/payroll-benefits/', include('payroll_benefits.urls')),
+    # EVO-People Management: Employee Records (Employee Database, Documents,
+    # Org Chart) is built; Attendance/Engagement/Workforce Dashboard aren't
+    # yet — their frontend sub-module pages are still "Coming soon".
+    path('api/people/', include('people.urls')),
 ]
 
 if settings.DEBUG:

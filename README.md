@@ -73,13 +73,13 @@ Every module API requires the access token and is scoped **per-user** — there'
 
 | App | Status | Models | API base path |
 |---|---|---|---|
-| `recruit` | **Real** | `Client`, `Requisition`, `Candidate`, `OfferLetter`, `BackgroundCheck`, `Onboarding`+`OnboardingTask`, `Offboarding`+`OffboardingTask` | `/api/recruit/` |
+| `recruit` | **Real — fully built** | `Client`, `Requisition`, `Candidate`, `OfferLetter`, `BackgroundCheck`, `Onboarding`+`OnboardingTask`, `Offboarding`+`OffboardingTask` | `/api/recruit/` |
 | `payroll_benefits` | **Real** (payroll only) | `PayrollRun` | `/api/payroll-benefits/` |
-| `people` | Scaffolded, no models yet | — | — |
+| `people` | **Real** (Employee Records only) | `Employee`, `EmployeeDocument` | `/api/people/` |
 | `talent` | Scaffolded, no models yet | — | — |
 | `it_assets` | Scaffolded, no models yet | — | — |
 
-`people`/`talent`/`it_assets` exist as registered Django apps (in `INSTALLED_APPS`) so they're ready to grow into, but have no models, serializers, views, or URLs yet — their frontend module pages are still all "Coming soon" tiles. Add to these apps directly when a module's features start getting built out; don't add unrelated models to `recruit` or `payroll_benefits`.
+`talent`/`it_assets` exist as registered Django apps (in `INSTALLED_APPS`) so they're ready to grow into, but have no models, serializers, views, or URLs yet — their frontend module pages are still all "Coming soon" tiles. `people` has its first sub-module (Employee Records) built; Attendance Management, Employee Engagement, and Workforce Dashboard aren't modeled yet. Add to these apps directly when a module's features start getting built out; don't add unrelated models to `recruit` or `payroll_benefits`.
 
 ### EVO-Recruit (`recruit`)
 
@@ -119,9 +119,22 @@ CSV import is a stateless two-step flow (`core/csv_io.py`) — the preview step 
 - `/api/payroll-benefits/payroll-runs/` — standard `ModelViewSet` for `PayrollRun`. Creating a run also logs to `core.ActivityLog` (tone `amber` if status is `"Needs review"`, else `primary`).
 - Benefits (enrollment, claims, cost analysis) aren't modeled yet — the frontend module page shows them as placeholder tiles.
 
+### EVO-People Management (`people`)
+
+Employee Records is the first People sub-module built — the rest (Attendance Management, Employee Engagement, Workforce Dashboard) aren't modeled yet.
+
+| Path | Model | Notable read-only computed fields |
+|---|---|---|
+| `/api/people/employees/` | `Employee` | `initials`, `manager_name`, `direct_reports_count`, nested `documents` |
+| `/api/people/employee-documents/` | `EmployeeDocument` | Scoped via `employee__owner`, not its own `IsOwner` check — same reasoning as Recruit's `OnboardingTask` (no `owner` field of its own) |
+
+Plus `GET /api/people/dashboard-summary/` (headcount/active/on-leave/department counts, a department breakdown, and a status breakdown — all live), and the same CSV export/import-preview/import-commit trio as `recruit/clients` and `recruit/candidates`, on `/api/people/employees/`.
+
+`Employee.manager` is a self-referential FK — Organizational Chart (the frontend's `/dashboard/org-chart`) is a derived tree view over it, not a separate model. `Employee.source_candidate` optionally links back to a `recruit.Candidate` for people who came through EVO-Recruit, but isn't required — People also supports employees entered directly. Employee Self-Service and Promotion & Transfer Workflows aren't built yet (would need a real employee-facing auth flow, analogous to Recruit's Candidate Portal reasoning, but bigger in scope since it's read/write not just read-only status).
+
 ### The demo account
 
-`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs, a matching activity log, plus one sample offer letter, background check, in-progress onboarding (with tasks across all 6 categories), and in-progress offboarding (with tasks across all 3 categories) — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every EVO-Recruit feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts with an empty CRM instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
+`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset across every real module — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs, a matching activity log, one sample offer letter, background check, in-progress onboarding (tasks across all 6 categories), in-progress offboarding (tasks across all 3 categories), and 6 employees across 2 departments with a 2-manager org chart (Employee Database/Org Chart/People dashboard all show something real) — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every built feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts empty instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, `people`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
 
 ## Environment variables
 
