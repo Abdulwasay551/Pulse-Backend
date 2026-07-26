@@ -1,5 +1,76 @@
+import uuid
+
 from django.conf import settings
 from django.db import models
+
+
+class Organization(models.Model):
+    """The "company" an HR account sets up — every Employee-role account
+    joins one of these (their inviting HR's). Data ownership itself still
+    keys off the HR user's own id (see UserProfile.data_owner_id) rather
+    than switching every module's `owner` FK to point at Organization —
+    that would mean touching every model in Recruit/People/Talent/Payroll
+    for no functional gain, since one HR account = one organization today
+    (no multi-HR orgs yet)."""
+
+    name = models.CharField(max_length=200)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='organizations_created')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+
+class UserProfile(models.Model):
+    """Role + organization membership for a login. Every user who signs up
+    the normal way becomes HR with a brand-new Organization; an Employee
+    account is only ever created by an HR user (direct account creation or
+    an email invite) and joins that HR's Organization.
+
+    Pre-existing users (created before this feature shipped) have no
+    profile row at all — every permission/role check here treats a missing
+    profile as "HR, full access", so nothing existing breaks."""
+
+    ROLE_CHOICES = [
+        ('HR', 'HR'),
+        ('Employee', 'Employee'),
+    ]
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='HR')
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='members')
+    # Which people.Employee record this login *is* — only ever set for
+    # Employee-role profiles, used to scope clock-in/goals/etc to "me".
+    employee = models.ForeignKey(
+        'people.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='user_accounts'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.user.username} ({self.role})'
+
+    @property
+    def data_owner_id(self):
+        """The user id whose owner-scoped rows (Candidate, Employee,
+        PayrollRun, etc.) this profile's organization shares — the HR
+        founder's own id, for both HR and Employee profiles alike."""
+        return self.organization.created_by_id
+
+
+class EmployeeInvite(models.Model):
+    """A pending "join this organization" email invite for a specific
+    people.Employee record — consumed by RegisterSerializer when someone
+    signs up with ?invite=<token>."""
+
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='invites')
+    employee = models.ForeignKey('people.Employee', on_delete=models.CASCADE, related_name='invites')
+    email = models.EmailField()
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f'Invite for {self.employee.name} ({self.email})'
 
 
 class ActivityLog(models.Model):

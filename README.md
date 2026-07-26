@@ -67,19 +67,30 @@ Login accepts **either a username or an email** in the same `identifier` field (
 
 CORS is configured with `CORS_ALLOW_CREDENTIALS = True` so the browser can send/receive the refresh cookie cross-origin — the frontend's origin must be listed in `DJANGO_CORS_ALLOWED_ORIGINS` (below) or these calls fail with a CORS error, not a 401.
 
+## Role-based access control (HR vs. Employee)
+
+`core.models.Organization` (a `name` + the HR user who created it) and `core.models.UserProfile` (one-to-one with `User`; `role` is `HR` or `Employee`; FK to `Organization`; FK to `people.Employee` when the profile is an Employee-role login) sit alongside the existing per-user ownership model rather than replacing it. Every owned row (`Candidate`, `Employee`, `PayrollRun`, etc.) is still scoped to a single "data owner" user id — `UserProfile.data_owner_id` is that id for both HR and Employee profiles in the same organization, so an invited employee's self-service views see the HR founder's data, not their own empty set.
+
+- **Pre-existing accounts keep working with no migration**: a user with no `UserProfile` row at all (every account created before this feature shipped) is treated as full-access HR everywhere it matters — `core.permissions.is_hr_or_legacy()` and `UserSerializer`'s `role`/`organization`/`employee` fields (`SerializerMethodField`s) both default to HR/None/None when `request.user.profile` doesn't exist. HR-only actions (sending an invite, creating an employee login) lazily create the `Organization`+`UserProfile` on first use instead (`core/hr_views.py::get_or_create_hr_profile`).
+- **Enforcement is one shared change**: `core.permissions.IsOwner.has_permission()` now also requires `is_hr_or_legacy(request)`, so every viewset that already used `IsOwner` (the large majority, across all four module apps) automatically became HR-only with zero per-viewset edits. The object-level `obj.owner_id == request.user.id` check is unchanged. A parallel `IsHR` permission (same list/create-level check, no object-level method) was added explicitly to the handful of viewsets that were never `IsOwner`-based because they're scoped through a parent object's `owner` instead of their own (`EmployeeDocumentViewSet`, `SurveyResponseViewSet`, `EnrollmentViewSet`, `OnboardingTaskViewSet`, `OffboardingTaskViewSet`) plus the three `*DashboardSummaryView`s and `EmployeeScoreView`.
+- **Employee self-service is a separate, narrow surface**, not a relaxation of the module APIs: `core/my_views.py` exposes only `GET /api/my/dashboard/` (employee info, today's clock status, up to 10 goals, 6 most recent org activity-log entries), `POST /api/my/clock-in/`, `POST /api/my/clock-out/` — an Employee-role login has zero access to `/api/recruit/`, `/api/people/`, `/api/talent/`, `/api/payroll-benefits/` (blocked by the `IsOwner`/`IsHR` change above, a real 403, not just hidden in the UI).
+- **Provisioning an employee login** — two flows, both HR-only (`IsHR`):
+  - `POST /api/employee-accounts/` (`core/hr_views.py::EmployeeAccountCreateView`) — HR sets a username + password directly; the account can log in immediately.
+  - `POST /api/employee-invites/` (`EmployeeInviteView`) — creates a `core.models.EmployeeInvite` (`token` UUID, `accepted_at` nullable) and emails a signup link (`FRONTEND_URL/signup?invite=<token>`); `GET /api/invites/<uuid:token>/` (`InviteDetailView`, `AllowAny`) lets the signup page show which org/employee the invite is for before the user sets a password. `RegisterSerializer` accepts an optional `invite_token` — when present and unaccepted, `register()` creates an Employee-role `UserProfile` linked to the invite's organization/employee and marks the invite accepted, instead of creating a brand-new `Organization`.
+
 ## Module apps
 
-Every module API requires the access token and is scoped **per-user** — there's no team/org concept, so a request only ever sees (and can only ever touch) rows where `owner == request.user` (enforced by the shared `core.permissions.IsOwner`). Accessing another user's object by ID returns a plain 404, not a 403 (so IDs don't even leak existence).
+Every module API requires the access token and is scoped **per-user** — there's no team/org concept at the ownership layer, so a request only ever sees (and can only ever touch) rows where `owner == request.user` (enforced by the shared `core.permissions.IsOwner`; see the role-based access control section above for how HR vs. Employee logins layer on top of this). Accessing another user's object by ID returns a plain 404, not a 403 (so IDs don't even leak existence).
 
 | App | Status | Models | API base path |
 |---|---|---|---|
 | `recruit` | **Real — fully built** | `Client`, `Requisition`, `Candidate`, `OfferLetter`, `BackgroundCheck`, `Onboarding`+`OnboardingTask`, `Offboarding`+`OffboardingTask` | `/api/recruit/` |
 | `payroll_benefits` | **Real** (payroll only) | `PayrollRun` | `/api/payroll-benefits/` |
 | `people` | **Real — fully built** | `Employee`, `EmployeeDocument`, `AttendanceRecord`, `Shift`, `LeaveRequest`, `Survey`+`SurveyResponse`, `Recognition`, `PromotionRequest` | `/api/people/` |
-| `talent` | Scaffolded, no models yet | — | — |
+| `talent` | **Real — fully built** | `Goal`, `Appraisal`, `CompetencyRating`, `Course`+`Enrollment`, `CareerPath`, `SuccessionPlan` | `/api/talent/` |
 | `it_assets` | Scaffolded, no models yet | — | — |
 
-`talent`/`it_assets` exist as registered Django apps (in `INSTALLED_APPS`) so they're ready to grow into, but have no models, serializers, views, or URLs yet — their frontend module pages are still all "Coming soon" tiles. Add to these apps directly when a module's features start getting built out; don't add unrelated models to `recruit`, `payroll_benefits`, or `people`.
+`it_assets` exists as a registered Django app (in `INSTALLED_APPS`) so it's ready to grow into, but has no models, serializers, views, or URLs yet — its frontend module page is still all "Coming soon" tiles. Add to it directly when its features start getting built out; don't add unrelated models to `recruit`, `payroll_benefits`, `people`, or `talent`.
 
 ### EVO-Recruit (`recruit`)
 
@@ -142,9 +153,27 @@ Plus:
 
 `Employee.manager` is a self-referential FK — Organizational Chart (the frontend's `/dashboard/org-chart`) is a derived tree view over it, not a separate model. `Employee.source_candidate` optionally links back to a `recruit.Candidate` for people who came through EVO-Recruit, but isn't required — People also supports employees entered directly.
 
+### EVO-Talent Management (`talent`)
+
+**Fully built — every sub-module in the spec is real.**
+
+| Path | Model | Notable read-only computed fields |
+|---|---|---|
+| `/api/talent/goals/` | `Goal` | `employee_detail` |
+| `/api/talent/appraisals/` | `Appraisal` | `employee_detail` |
+| `/api/talent/competency-ratings/` | `CompetencyRating` | `employee_detail` — backs both "Competency Mapping of Employees" (Goals & Appraisal) and "Skills & Competency Mapping" (Learning & Growth) in the frontend nav; one model, two entry points |
+| `/api/talent/courses/` | `Course` | nested `enrollments` |
+| `/api/talent/enrollments/` | `Enrollment` | `employee_detail`, `course_detail`. Scoped via `course__owner`, not its own `IsOwner` check |
+| `/api/talent/career-paths/` | `CareerPath` | `employee_detail` |
+| `/api/talent/succession-plans/` | `SuccessionPlan` | `employee_detail`. `potential_rating`/`performance_rating` (`Low`/`Medium`/`High`) place the row on a 9-box grid — the grid position is derived, not stored |
+
+Plus:
+- `GET /api/talent/employees/<id>/score/` (`IsHR`) — Value-Addition / Performance Scoring, "powered by EVO-AI" per the spec. `talent/scoring.py::compute_value_score` blends the employee's average goal `progress` with their average finalized-appraisal `overall_rating` (scaled to 0–100) into a single live score plus short notes — same "honest heuristic placeholder for a future real model" reasoning as Recruit's AI resume screening, since no ML/LLM vendor is provisioned.
+- `GET /api/talent/dashboard-summary/` — `overview_stats`, `kpis` (course completion rate, ready-now successors, career paths mapped, competencies tracked), and `nine_box` (a `{potential}_{performance}: count` dict the frontend renders as an actual 3×3 grid table).
+
 ### The demo account
 
-`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset across every real module — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs, a matching activity log, one sample offer letter, background check, in-progress onboarding (tasks across all 6 categories), in-progress offboarding (tasks across all 3 categories); and for People, 6 employees across 2 departments with a 2-manager org chart, attendance records, a shift, two leave requests (one pending), an open pulse check with responses, a recognition, and a pending promotion request — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every built feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts empty instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, `people`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
+`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset across every real module — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs, a matching activity log, one sample offer letter, background check, in-progress onboarding (tasks across all 6 categories), in-progress offboarding (tasks across all 3 categories); for People, 6 employees across 2 departments with a 2-manager org chart, attendance records, a shift, two leave requests (one pending), an open pulse check with responses, a recognition, and a pending promotion request; and for Talent, 2 goals, a finalized appraisal, 3 competency ratings, a course with 2 enrollments, a career path, and 2 succession plans — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every built feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts empty instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, `people`, `talent`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
 
 ## Environment variables
 

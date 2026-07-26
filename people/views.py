@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 
 from core.activity import log_activity
 from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
-from core.permissions import IsOwner
+from core.permissions import IsHR, IsOwner
 
 from .models import (
     AttendanceRecord,
@@ -141,7 +141,7 @@ class EmployeeDocumentViewSet(viewsets.ModelViewSet):
 
     queryset = EmployeeDocument.objects.select_related('employee').all()
     serializer_class = EmployeeDocumentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
@@ -214,7 +214,7 @@ class SurveyResponseViewSet(viewsets.ModelViewSet):
 
     queryset = SurveyResponse.objects.select_related('employee', 'survey').all()
     serializer_class = SurveyResponseSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get_queryset(self):
         return self.queryset.filter(survey__owner=self.request.user)
@@ -267,7 +267,7 @@ class PeopleDashboardSummaryView(APIView):
     """EVO-People's overview numbers, computed live from the user's own
     employee rows — nothing here is stored/cached."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get(self, request):
         employees = Employee.objects.filter(owner=request.user)

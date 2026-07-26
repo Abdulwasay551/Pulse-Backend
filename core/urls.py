@@ -11,6 +11,8 @@ from .auth_views import (
     ResetPasswordView,
 )
 from .demo_views import DemoRequestCreateView
+from .hr_views import EmployeeAccountCreateView, EmployeeInviteView, InviteDetailView
+from .my_views import ClockInView, ClockOutView, MyDashboardView
 
 urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='auth-register'),
@@ -22,4 +24,12 @@ urlpatterns = [
     path('auth/password/forgot/', ForgotPasswordView.as_view(), name='auth-password-forgot'),
     path('auth/password/reset/', ResetPasswordView.as_view(), name='auth-password-reset'),
     path('demo-requests/', DemoRequestCreateView.as_view(), name='demo-request-create'),
+    # HR: employee account provisioning
+    path('employee-invites/', EmployeeInviteView.as_view(), name='employee-invite'),
+    path('invites/<uuid:token>/', InviteDetailView.as_view(), name='invite-detail'),
+    path('employee-accounts/', EmployeeAccountCreateView.as_view(), name='employee-account-create'),
+    # Employee-role self-service
+    path('my/dashboard/', MyDashboardView.as_view(), name='my-dashboard'),
+    path('my/clock-in/', ClockInView.as_view(), name='my-clock-in'),
+    path('my/clock-out/', ClockOutView.as_view(), name='my-clock-out'),
 ]

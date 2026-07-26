@@ -1,27 +1,54 @@
 from django.contrib.auth import get_user_model, authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone
 from rest_framework import serializers
 
-from .models import DemoRequest
+from .models import DemoRequest, EmployeeInvite, Organization, UserProfile
 
 User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    # A missing profile (pre-existing accounts) reads as HR with no
+    # organization/employee — see core.permissions.is_hr_or_legacy for the
+    # matching permission-side default.
+    role = serializers.SerializerMethodField()
+    organization = serializers.SerializerMethodField()
+    employee = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'date_joined']
-        read_only_fields = ['id', 'username', 'date_joined']
+        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'date_joined', 'role', 'organization', 'employee']
+        read_only_fields = ['id', 'username', 'date_joined', 'role', 'organization', 'employee']
+
+    def get_role(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.role if profile else 'HR'
+
+    def get_organization(self, obj):
+        profile = getattr(obj, 'profile', None)
+        return profile.organization.name if profile else None
+
+    def get_employee(self, obj):
+        profile = getattr(obj, 'profile', None)
+        if not profile or not profile.employee_id:
+            return None
+        return {'id': profile.employee_id, 'name': profile.employee.name}
 
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, style={'input_type': 'password'})
     password2 = serializers.CharField(write_only=True, style={'input_type': 'password'})
+    # Only used for a normal (non-invite) signup — ignored/overridden when
+    # an invite_token is present, since that signup joins an existing
+    # organization instead of creating a new one.
+    organization_name = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    invite_token = serializers.UUIDField(write_only=True, required=False)
 
     class Meta:
         model = User
-        fields = ['username', 'email', 'password', 'password2']
+        fields = ['username', 'email', 'password', 'password2', 'organization_name', 'invite_token']
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
@@ -40,14 +67,37 @@ class RegisterSerializer(serializers.ModelSerializer):
             validate_password(attrs['password'])
         except DjangoValidationError as exc:
             raise serializers.ValidationError({'password': list(exc.messages)})
+
+        invite_token = attrs.get('invite_token')
+        if invite_token:
+            invite = EmployeeInvite.objects.filter(token=invite_token, accepted_at__isnull=True).first()
+            if invite is None:
+                raise serializers.ValidationError({'invite_token': 'This invite link is invalid or already used.'})
+            attrs['_invite'] = invite
         return attrs
 
     def create(self, validated_data):
         validated_data.pop('password2')
+        organization_name = validated_data.pop('organization_name', '')
+        validated_data.pop('invite_token', None)
+        invite = validated_data.pop('_invite', None)
         password = validated_data.pop('password')
         user = User(**validated_data)
         user.set_password(password)
         user.save()
+
+        if invite is not None:
+            UserProfile.objects.create(
+                user=user, role='Employee', organization=invite.organization, employee=invite.employee
+            )
+            invite.accepted_at = timezone.now()
+            invite.save(update_fields=['accepted_at'])
+        else:
+            org = Organization.objects.create(
+                name=organization_name or f"{user.username}'s organization", created_by=user
+            )
+            UserProfile.objects.create(user=user, role='HR', organization=org)
+
         return user
 
 

@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from core.activity import log_activity
 from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
 from core.models import ActivityLog
-from core.permissions import IsOwner
+from core.permissions import IsHR, IsOwner
 from payroll_benefits.models import PayrollRun
 
 from .ai_screening import score_candidate
@@ -266,7 +266,7 @@ class OnboardingTaskViewSet(viewsets.ModelViewSet):
 
     queryset = OnboardingTask.objects.select_related('onboarding').all()
     serializer_class = OnboardingTaskSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get_queryset(self):
         return self.queryset.filter(onboarding__owner=self.request.user)
@@ -287,7 +287,7 @@ class OffboardingTaskViewSet(viewsets.ModelViewSet):
 
     queryset = OffboardingTask.objects.select_related('offboarding').all()
     serializer_class = OffboardingTaskSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get_queryset(self):
         return self.queryset.filter(offboarding__owner=self.request.user)
@@ -388,7 +388,7 @@ class DashboardSummaryView(APIView):
     reads from payroll_benefits.PayrollRun since placement-fee revenue is
     tracked as payroll, not as a Recruit-owned figure."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsHR]
 
     def get(self, request):
         user = request.user
