@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import (
     BackgroundCheckViewSet,
+    CandidatePortalView,
     CandidateViewSet,
     ClientViewSet,
     DashboardSummaryView,
@@ -27,5 +28,6 @@ router.register('offboarding-tasks', OffboardingTaskViewSet, basename='offboardi
 
 urlpatterns = [
     path('dashboard-summary/', DashboardSummaryView.as_view(), name='recruit-dashboard-summary'),
+    path('portal/<uuid:token>/', CandidatePortalView.as_view(), name='recruit-candidate-portal'),
     path('', include(router.urls)),
 ]

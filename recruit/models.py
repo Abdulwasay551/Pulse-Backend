@@ -1,3 +1,4 @@
+import uuid
 from datetime import date
 
 from django.conf import settings
@@ -108,6 +109,11 @@ class Candidate(models.Model):
     )
     ai_score = models.PositiveSmallIntegerField(null=True, blank=True)
     ai_score_notes = models.TextField(blank=True)
+    # The Candidate Portal is a public, no-login status page for the
+    # candidate themselves — this token is its unguessable key. Real
+    # candidate accounts/auth would be a much bigger lift; a stable secret
+    # link the recruiter can share gives most of the same value honestly.
+    portal_token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -255,6 +261,9 @@ class Offboarding(models.Model):
     last_working_day = models.DateField()
     reason = models.CharField(max_length=200, blank=True)
     rehire_eligible = models.BooleanField(default=True)
+    # Free-form tracking for the Rehire & Alumni Pool view — conversations,
+    # interest level, whether they've been reached out to again, etc.
+    rehire_notes = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Not Started')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

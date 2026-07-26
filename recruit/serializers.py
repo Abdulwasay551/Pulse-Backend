@@ -65,13 +65,14 @@ class CandidateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'initials', 'role', 'email', 'phone', 'client', 'client_name',
             'requisition', 'requisition_title', 'stage', 'source', 'applied_at', 'placed_at',
-            'resume_file', 'resume_text', 'ai_score', 'ai_score_notes', 'created_at', 'updated_at',
+            'resume_file', 'resume_text', 'ai_score', 'ai_score_notes', 'portal_token',
+            'created_at', 'updated_at',
         ]
         read_only_fields = [
             # applied_at is writable (defaults to today when omitted) — both
             # regular entry and CSV import need to be able to log a
             # candidate's real historical application date, not just "now".
-            'id', 'placed_at', 'ai_score', 'ai_score_notes', 'created_at', 'updated_at',
+            'id', 'placed_at', 'ai_score', 'ai_score_notes', 'portal_token', 'created_at', 'updated_at',
         ]
 
     def get_initials(self, obj):
@@ -99,6 +100,24 @@ class CandidateLiteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Candidate
         fields = ['id', 'name', 'initials', 'role']
+
+    def get_initials(self, obj):
+        return initials_for(obj.name)
+
+
+class CandidatePortalSerializer(serializers.ModelSerializer):
+    """What a candidate sees on their own public status page (looked up by
+    portal_token, no auth) — deliberately excludes everything internal:
+    email/phone, resume, AI score, and any owner/client identifying detail
+    beyond the client name itself."""
+
+    initials = serializers.SerializerMethodField()
+    client_name = serializers.CharField(source='client.name', read_only=True, default=None)
+    requisition_title = serializers.CharField(source='requisition.title', read_only=True, default=None)
+
+    class Meta:
+        model = Candidate
+        fields = ['name', 'initials', 'role', 'client_name', 'requisition_title', 'stage', 'applied_at']
 
     def get_initials(self, obj):
         return initials_for(obj.name)
@@ -197,7 +216,7 @@ class OffboardingSerializer(serializers.ModelSerializer):
         model = Offboarding
         fields = [
             'id', 'candidate', 'candidate_detail', 'last_working_day', 'reason', 'rehire_eligible',
-            'status', 'tasks', 'progress', 'created_at', 'updated_at',
+            'rehire_notes', 'status', 'tasks', 'progress', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 

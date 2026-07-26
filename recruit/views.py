@@ -1,11 +1,12 @@
 from datetime import timedelta
 
 from django.db.models import Sum
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -29,6 +30,7 @@ from .models import (
 )
 from .serializers import (
     BackgroundCheckSerializer,
+    CandidatePortalSerializer,
     CandidateSerializer,
     ClientSerializer,
     OffboardingSerializer,
@@ -187,6 +189,20 @@ class CandidateViewSet(OwnedModelViewSet):
                 user, f'Imported {count} candidate{"s" if count != 1 else ""} from CSV', 'neutral'
             ),
         )
+
+
+class CandidatePortalView(APIView):
+    """The public, no-login status page a candidate sees at their own
+    portal link (frontend: /portal/[token]) — looked up by the unguessable
+    portal_token, not by owner, since the candidate isn't an authenticated
+    user of this system at all. Deliberately returns only
+    CandidatePortalSerializer's narrow, non-sensitive field set."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        candidate = get_object_or_404(Candidate, portal_token=token)
+        return Response(CandidatePortalSerializer(candidate).data)
 
 
 class OfferLetterViewSet(OwnedModelViewSet):

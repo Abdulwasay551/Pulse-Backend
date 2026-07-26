@@ -104,12 +104,15 @@ Plus:
 - `GET /api/recruit/clients/export/` and `/candidates/export/` — CSV export of the user's own rows.
 - `POST /api/recruit/clients/import/preview/` and `/candidates/import/preview/` (multipart, `file`) — parses an uploaded CSV and returns its columns, all parsed rows, a suggested column→field mapping, and the full set of importable fields.
 - `POST /api/recruit/clients/import/commit/` and `/candidates/import/commit/` (JSON, `{columns, rows, mapping}` from the preview step) — validates each row through the resource's normal serializer (proper type coercion + per-row error messages) and creates the valid ones; returns `{created, errors}`.
+- `GET /api/recruit/portal/<uuid:token>/` — **public, no auth** (`AllowAny`). The Candidate Portal: looked up by `Candidate.portal_token` (a `UUIDField(unique=True)`, auto-generated, never exposed except as a read-only field on the owner's own candidate detail), not by owner — the candidate isn't a user of this system. Returns `CandidatePortalSerializer`'s narrow field set (name, initials, role, client name, requisition title, stage, applied date) — deliberately excludes email/phone/resume/AI score/anything else internal.
 
 Creating/updating a `Candidate` (stage change) also writes to `core.ActivityLog` via `core.activity.log_activity`, which is what `dashboard-summary` surfaces as "recent activity" — this happens automatically inside the viewset's `perform_create`/`perform_update`, not as a separate call the frontend has to make. The same pattern extends to offer letters, background checks, onboarding, and offboarding.
 
 **AI resume screening** (`recruit/ai_screening.py`) is a heuristic keyword/skill-overlap scorer — it matches words in `Candidate.resume_text` against the linked `Requisition.requirements` (and title) and returns a 0–100 score plus a short explanation of which keywords matched. It's a real, working feature today, not a stub — but it's deliberately built as a drop-in-replaceable placeholder for a future real LLM call, since no LLM vendor account is provisioned for this project yet. Same reasoning for `OfferLetter` (draft → sent → signed/declined is tracked and confirmed manually, not through a real e-signature vendor) and `BackgroundCheck` (status is tracked internally, not through a real vendor like Checkr/Sterling) — both are honest placeholders for integrations that need a vendor account nobody has provisioned.
 
 CSV import is a stateless two-step flow (`core/csv_io.py`) — the preview step does no server-side storage; it hands the *entire* parsed CSV back to the frontend, which round-trips it back unchanged (plus the user-confirmed column mapping) on commit. Capped at 5,000 rows per import.
+
+`Offboarding.rehire_notes` (free-text) backs the frontend's Rehire & Alumni Pool view — a filter over `Offboarding` rows where `rehire_eligible=True`, not a separate model.
 
 ### EVO-Payroll & Benefits (`payroll_benefits`)
 
