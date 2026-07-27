@@ -8,7 +8,15 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import ActivityLog
-from payroll_benefits.models import PayrollRun
+from payroll_benefits.models import (
+    BankAccount,
+    BenefitClaim,
+    BenefitEnrollment,
+    BenefitPlan,
+    ComplianceEvent,
+    PayrollRun,
+    TaxProfile,
+)
 from people.models import (
     AttendanceRecord,
     Employee,
@@ -71,6 +79,8 @@ class Command(BaseCommand):
         Requisition.objects.filter(owner=user).delete()
         Client.objects.filter(owner=user).delete()
         PayrollRun.objects.filter(owner=user).delete()
+        ComplianceEvent.objects.filter(owner=user).delete()
+        BenefitPlan.objects.filter(owner=user).delete()
         Employee.objects.filter(owner=user).delete()
         Survey.objects.filter(owner=user).delete()
         Course.objects.filter(owner=user).delete()
@@ -254,6 +264,11 @@ class Command(BaseCommand):
             PayrollRun.objects.create(
                 owner=user, period=period, contractors=contractors, amount=amount, status=status,
             )
+        flagged_run = PayrollRun.objects.filter(owner=user, status='Needs review').first()
+        if flagged_run:
+            flagged_run.discrepancy_flagged = True
+            flagged_run.audit_notes = 'Contractor hours look 6 hours higher than last cycle — confirm with finance before release.'
+            flagged_run.save(update_fields=['discrepancy_flagged', 'audit_notes'])
 
         # EVO-People Management demo data — a small org chart across two
         # departments, so Employee Database/Org Chart/the People dashboard
@@ -355,6 +370,91 @@ class Command(BaseCommand):
         SuccessionPlan.objects.create(
             owner=user, employee=diego, potential_rating='High', performance_rating='Medium',
             successor_notes='On track for Engineering Manager once staff-level scope is proven.', ready_now=False,
+        )
+
+        # EVO-Payroll & Benefits demo data — Tax Compliance, Compliance
+        # Calendar, Direct Deposit, and Benefits (enrollment/claims), so
+        # every sub-module has something real to show.
+        TaxProfile.objects.create(
+            owner=user, employee=diego, country='United States', tax_id='XXX-XX-4821',
+            filing_status='Single', compliance_status='Compliant', last_reviewed=d(6, 1),
+        )
+        TaxProfile.objects.create(
+            owner=user, employee=sofia, country='Portugal', tax_id='PT-778213456',
+            filing_status='Single', compliance_status='Action Required',
+            notes='NHR status renewal paperwork still outstanding.', last_reviewed=d(4, 15),
+        )
+        TaxProfile.objects.create(
+            owner=user, employee=hr_lead, country='United States', tax_id='XXX-XX-9012',
+            filing_status='Married', compliance_status='Compliant', last_reviewed=d(6, 1),
+        )
+
+        ComplianceEvent.objects.create(
+            owner=user, country='United States', title='Q3 941 payroll tax filing',
+            category='Tax Filing', due_date=d(10, 31),
+        )
+        ComplianceEvent.objects.create(
+            owner=user, country='Portugal', title='NHR status renewal deadline',
+            category='Regulatory', due_date=d(8, 5),
+            notes='Blocks Sofia Marin\'s continued reduced-rate withholding if missed.',
+        )
+        ComplianceEvent.objects.create(
+            owner=user, country='United States', title='EUR/USD payroll FX rate lock for August run',
+            category='Currency Update', due_date=d(7, 30),
+        )
+        ComplianceEvent.objects.create(
+            owner=user, country='United States', title='Q2 941 payroll tax filing',
+            category='Tax Filing', due_date=d(7, 15), completed=True,
+        )
+
+        BankAccount.objects.create(
+            owner=user, employee=diego, bank_name='First Horizon Bank', account_holder_name='Diego Fernandez',
+            account_number_last4='8847', routing_number='084000026', account_type='Checking',
+            is_primary=True, verified=True,
+        )
+        BankAccount.objects.create(
+            owner=user, employee=tasha, bank_name='Ally Bank', account_holder_name='Tasha Reyes',
+            account_number_last4='9934', routing_number='124003116', account_type='Savings',
+            is_primary=True, verified=False,
+        )
+
+        health_plan = BenefitPlan.objects.create(
+            owner=user, name='EvoHR Gold PPO', plan_type='Health', provider='Blue Shield',
+            employee_cost=85, employer_cost=410,
+            description='Preferred provider organization plan covering medical, with a low deductible.',
+        )
+        dental_plan = BenefitPlan.objects.create(
+            owner=user, name='Bright Smile Dental', plan_type='Dental', provider='Delta Dental',
+            employee_cost=12, employer_cost=38,
+        )
+        retirement_plan = BenefitPlan.objects.create(
+            owner=user, name='401(k) — 4% match', plan_type='Retirement', provider='Fidelity',
+            employee_cost=0, employer_cost=0,
+            description='Employer matches up to 4% of salary on employee contributions.',
+        )
+        BenefitEnrollment.objects.create(
+            owner=user, employee=diego, plan=health_plan, coverage_level='Employee + Spouse',
+            status='Enrolled', enrolled_at=d(1, 15),
+        )
+        BenefitEnrollment.objects.create(
+            owner=user, employee=diego, plan=retirement_plan, coverage_level='Employee Only',
+            status='Enrolled', enrolled_at=d(1, 15),
+        )
+        BenefitEnrollment.objects.create(
+            owner=user, employee=tasha, plan=health_plan, coverage_level='Employee Only',
+            status='Enrolled', enrolled_at=d(5, 20),
+        )
+        BenefitEnrollment.objects.create(
+            owner=user, employee=sofia, plan=dental_plan, coverage_level='Employee Only',
+            status='Pending',
+        )
+        BenefitClaim.objects.create(
+            owner=user, employee=diego, plan=health_plan, claim_type='Specialist visit copay',
+            amount=45, status='Under Review', description='Dermatology follow-up.',
+        )
+        BenefitClaim.objects.create(
+            owner=user, employee=tasha, plan=dental_plan, claim_type='Routine cleaning',
+            amount=0, status='Paid',
         )
 
         activity_items = [

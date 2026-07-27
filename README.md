@@ -85,7 +85,7 @@ Every module API requires the access token and is scoped **per-user** — there'
 | App | Status | Models | API base path |
 |---|---|---|---|
 | `recruit` | **Real — fully built** | `Client`, `Requisition`, `Candidate`, `OfferLetter`, `BackgroundCheck`, `Onboarding`+`OnboardingTask`, `Offboarding`+`OffboardingTask` | `/api/recruit/` |
-| `payroll_benefits` | **Real** (payroll only) | `PayrollRun` | `/api/payroll-benefits/` |
+| `payroll_benefits` | **Real — fully built** | `PayrollRun`, `TaxProfile`, `ComplianceEvent`, `BankAccount`, `BenefitPlan`, `BenefitEnrollment`, `BenefitClaim` | `/api/payroll-benefits/` |
 | `people` | **Real — fully built** | `Employee`, `EmployeeDocument`, `AttendanceRecord`, `Shift`, `LeaveRequest`, `Survey`+`SurveyResponse`, `Recognition`, `PromotionRequest` | `/api/people/` |
 | `talent` | **Real — fully built** | `Goal`, `Appraisal`, `CompetencyRating`, `Course`+`Enrollment`, `CareerPath`, `SuccessionPlan` | `/api/talent/` |
 | `it_assets` | Scaffolded, no models yet | — | — |
@@ -127,8 +127,21 @@ CSV import is a stateless two-step flow (`core/csv_io.py`) — the preview step 
 
 ### EVO-Payroll & Benefits (`payroll_benefits`)
 
-- `/api/payroll-benefits/payroll-runs/` — standard `ModelViewSet` for `PayrollRun`. Creating a run also logs to `core.ActivityLog` (tone `amber` if status is `"Needs review"`, else `primary`).
-- Benefits (enrollment, claims, cost analysis) aren't modeled yet — the frontend module page shows them as placeholder tiles.
+**Fully built — every sub-module in the spec is real.**
+
+| Path | Model | Notable fields |
+|---|---|---|
+| `/api/payroll-benefits/payroll-runs/` | `PayrollRun` | `currency` (multi-currency support), `discrepancy_flagged`/`audit_notes` (Payroll Audit & Reconciliation Reports — annotated on the run itself, not a separate model, same reasoning as `Offboarding.rehire_notes`). Creating a run logs to `core.ActivityLog` (tone `amber` if status is `"Needs review"`, else `primary`) |
+| `/api/payroll-benefits/tax-profiles/` | `TaxProfile` | `employee_detail`. Multi-Country Tax Compliance — one row per employee per country, with a `compliance_status` (`Compliant`/`Pending Review`/`Action Required`) |
+| `/api/payroll-benefits/compliance-events/` | `ComplianceEvent` | The compliance-calendar half of "Multi-Currency Support & Compliance Calendar" — `calendar_status` (`Upcoming`/`Due soon`/`Overdue`/`Completed`) is computed live from `due_date`, not stored |
+| `/api/payroll-benefits/bank-accounts/` | `BankAccount` | `employee_detail`. Direct Deposit / Banking Integration — only `account_number_last4` is ever persisted; the serializer accepts a write-only `account_number` and truncates it server-side, so a full account number never round-trips back to the client |
+| `/api/payroll-benefits/benefit-plans/` | `BenefitPlan` | `enrolled_count`. The Benefits catalog (Health/Dental/Vision/Retirement/Life Insurance/Other) |
+| `/api/payroll-benefits/benefit-enrollments/` | `BenefitEnrollment` | `employee_detail`, `plan_detail`. `enrolled_at`/`terminated_at` are set automatically the moment `status` transitions to `"Enrolled"`/`"Terminated"` |
+| `/api/payroll-benefits/benefit-claims/` | `BenefitClaim` | `employee_detail`, `plan_name`. `resolved_at` is set automatically the moment `status` transitions to `"Approved"`/`"Rejected"`/`"Paid"`, which also logs to `core.ActivityLog` |
+
+Plus `GET /api/payroll-benefits/dashboard-summary/` — `overview_stats`, `kpis` (discrepancies flagged, tax action required, compliance events overdue/due-soon), and `benefit_cost_by_type` + `total_monthly_benefit_cost` (both computed live from active enrollments × plan employer cost — this backs Benefit Cost Analysis, a computed view rather than a separate model).
+
+`BankAccount`/`TaxProfile` are honest placeholders in the same spirit as Recruit's AI resume screening: real, working features today (bank details are stored and tracked, tax status is recorded and reviewable), deliberately built as a drop-in-replaceable seam for a future real banking-rail vendor (e.g. Plaid, Modern Treasury) or payroll-tax compliance service, since no such vendor account is provisioned for this project.
 
 ### EVO-People Management (`people`)
 
@@ -173,7 +186,7 @@ Plus:
 
 ### The demo account
 
-`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset across every real module — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs, a matching activity log, one sample offer letter, background check, in-progress onboarding (tasks across all 6 categories), in-progress offboarding (tasks across all 3 categories); for People, 6 employees across 2 departments with a 2-manager org chart, attendance records, a shift, two leave requests (one pending), an open pulse check with responses, a recognition, and a pending promotion request; and for Talent, 2 goals, a finalized appraisal, 3 competency ratings, a course with 2 enrollments, a career path, and 2 succession plans — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every built feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts empty instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, `people`, `talent`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
+`python manage.py seed_demo_account` creates (or resets) a `demo` user and fills it with a small realistic dataset across every real module — 8 clients, 6 requisitions, 10 candidates (two with resume text ready to screen), 5 payroll runs (one flagged with audit notes), a matching activity log, one sample offer letter, background check, in-progress onboarding (tasks across all 6 categories), in-progress offboarding (tasks across all 3 categories); for People, 6 employees across 2 departments with a 2-manager org chart, attendance records, a shift, two leave requests (one pending), an open pulse check with responses, a recognition, and a pending promotion request; for Talent, 2 goals, a finalized appraisal, 3 competency ratings, a course with 2 enrollments, a career path, and 2 succession plans; and for Payroll & Benefits, 3 tax profiles (one needing action), 4 compliance events (one overdue-by-design, one completed), 2 bank accounts, 3 benefit plans with 4 enrollments across them, and 2 benefit claims — so anyone can log in as `demo` / `EvoHRDemo2026!` (or whatever `DEMO_ACCOUNT_PASSWORD` is set to) and see every built feature populated, not just the original candidates/clients/requisitions core. It's a **real account** with real rows, not a special-cased mode — every other signup just starts empty instead. The command (in `core/management/commands/`, since it seeds across `recruit`, `payroll_benefits`, `people`, `talent`, and `core.ActivityLog`) is idempotent: re-running it wipes and re-creates only that one user's rows, so it's safe to use to reset the demo account after visitors have poked at it.
 
 ## Environment variables
 
