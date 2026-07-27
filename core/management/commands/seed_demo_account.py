@@ -28,6 +28,7 @@ from people.models import (
     SurveyResponse,
 )
 from talent.models import Appraisal, CareerPath, CompetencyRating, Course, Enrollment, Goal, SuccessionPlan
+from it_assets.models import Asset, AssetIncident, BYODCompliance, SupportTicket
 from recruit.models import (
     BackgroundCheck,
     Candidate,
@@ -81,6 +82,7 @@ class Command(BaseCommand):
         PayrollRun.objects.filter(owner=user).delete()
         ComplianceEvent.objects.filter(owner=user).delete()
         BenefitPlan.objects.filter(owner=user).delete()
+        Asset.objects.filter(owner=user).delete()
         Employee.objects.filter(owner=user).delete()
         Survey.objects.filter(owner=user).delete()
         Course.objects.filter(owner=user).delete()
@@ -455,6 +457,71 @@ class Command(BaseCommand):
         BenefitClaim.objects.create(
             owner=user, employee=tasha, plan=dental_plan, claim_type='Routine cleaning',
             amount=0, status='Paid',
+        )
+
+        # EVO-IT & Asset Management demo data — Asset Inventory, Device
+        # Provisioning (assigned_to), Warranty Tracking, IT Support
+        # Requests, Device Tracker, and BYOD Security Policy.
+        laptop_diego = Asset.objects.create(
+            owner=user, asset_tag='EVO-LT-1042', name='MacBook Pro 14"', category='Laptop',
+            serial_number='C02FX3QJMD6T', purchase_date=d(4, 15), warranty_expiry=date(YEAR + 1, 4, 15),
+            status='Assigned', assigned_to=diego, assigned_at=d(4, 18),
+        )
+        laptop_tasha = Asset.objects.create(
+            owner=user, asset_tag='EVO-LT-1055', name='Dell XPS 13', category='Laptop',
+            serial_number='5CD1234XYZ', purchase_date=d(5, 18), warranty_expiry=date(YEAR, 8, 1),
+            status='Assigned', assigned_to=tasha, assigned_at=d(5, 20),
+        )
+        monitor_spare = Asset.objects.create(
+            owner=user, asset_tag='EVO-MN-2011', name='Dell UltraSharp 27"', category='Monitor',
+            serial_number='CN-0T7C9P', purchase_date=d(2, 1), warranty_expiry=date(YEAR + 2, 2, 1),
+            status='In Stock',
+        )
+        phone_sofia = Asset.objects.create(
+            owner=user, asset_tag='EVO-PH-3007', name='iPhone 15', category='Phone',
+            serial_number='F2LN8Q3RJ9', purchase_date=d(6, 2), warranty_expiry=date(YEAR, 12, 2),
+            status='Assigned', assigned_to=sofia, assigned_at=d(6, 2), is_byod=False,
+        )
+        personal_laptop_eng_manager = Asset.objects.create(
+            owner=user, asset_tag='EVO-BYOD-004', name="Priya's personal MacBook Air", category='Laptop',
+            serial_number='FVFXQ2K1Q6L4', status='Assigned', assigned_to=eng_manager, assigned_at=d(3, 4),
+            is_byod=True, notes='Personal device approved for email + Slack access only.',
+        )
+
+        SupportTicket.objects.create(
+            owner=user, asset=laptop_tasha, employee=tasha, subject='Laptop battery draining fast',
+            description='Battery drops from 100% to 40% within two hours of light use.',
+            category='Repair Request', priority='Medium', status='In Progress',
+        )
+        SupportTicket.objects.create(
+            owner=user, asset=None, employee=diego, subject='Need a second monitor',
+            description='Requesting a second monitor for the new desk setup.',
+            category='Device Query', priority='Low', status='Open',
+        )
+        resolved_ticket = SupportTicket.objects.create(
+            owner=user, asset=phone_sofia, employee=sofia, subject='Set up company email on new phone',
+            description='Needed IT to configure MDM profile on the new phone.',
+            category='Device Query', priority='Low', status='Resolved',
+        )
+        resolved_ticket.resolved_at = timezone.now()
+        resolved_ticket.save(update_fields=['resolved_at'])
+
+        AssetIncident.objects.create(
+            owner=user, asset=laptop_diego, employee=diego, incident_type='Damage',
+            description='Small crack on the top-left corner of the lid from a drop.',
+            incident_date=d(6, 10), resolved=True,
+            resolution_notes='Cosmetic only — no functional impact, no repair needed.', cost=0,
+        )
+        AssetIncident.objects.create(
+            owner=user, asset=laptop_tasha, employee=tasha, incident_type='Repair',
+            description='Battery replacement, related to the open support ticket.',
+            incident_date=d(7, 20), resolved=False, cost=89,
+        )
+
+        BYODCompliance.objects.create(
+            owner=user, asset=personal_laptop_eng_manager, employee=eng_manager,
+            encryption_enabled=True, antivirus_installed=True, passcode_enabled=True,
+            compliance_status='Compliant', last_checked=d(6, 1),
         )
 
         activity_items = [

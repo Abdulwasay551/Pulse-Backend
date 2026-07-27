@@ -27,13 +27,14 @@ urlpatterns = [
     path('api/', include('core.urls')),
     # EVO-Recruit: fully built out, scoped per-user.
     path('api/recruit/', include('recruit.urls')),
-    # EVO-Payroll & Benefits: payroll-runs CRUD, scoped per-user. Benefits
-    # (enrollment/claims/cost-analysis) aren't built yet.
+    # EVO-Payroll & Benefits: fully built out, scoped per-user.
     path('api/payroll-benefits/', include('payroll_benefits.urls')),
     # EVO-People Management: fully built out, scoped per-user.
     path('api/people/', include('people.urls')),
     # EVO-Talent Management: fully built out, scoped per-user.
     path('api/talent/', include('talent.urls')),
+    # EVO-IT & Asset Management: fully built out, scoped per-user.
+    path('api/it-assets/', include('it_assets.urls')),
 ]
 
 if settings.DEBUG:
