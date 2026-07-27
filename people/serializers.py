@@ -18,10 +18,26 @@ def initials_for(name: str) -> str:
     return ''.join(p[0] for p in parts[:2]).upper()
 
 
+class EmployeeLiteSerializer(serializers.ModelSerializer):
+    """A trimmed view of Employee for nesting inside other serializers
+    (attendance, shifts, leave, surveys, recognition, promotions, documents)."""
+
+    initials = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Employee
+        fields = ['id', 'name', 'initials', 'job_title', 'department']
+
+    def get_initials(self, obj):
+        return initials_for(obj.name)
+
+
 class EmployeeDocumentSerializer(serializers.ModelSerializer):
+    employee_detail = EmployeeLiteSerializer(source='employee', read_only=True)
+
     class Meta:
         model = EmployeeDocument
-        fields = ['id', 'employee', 'doc_type', 'title', 'file', 'uploaded_at']
+        fields = ['id', 'employee', 'employee_detail', 'doc_type', 'title', 'file', 'uploaded_at']
         read_only_fields = ['id', 'uploaded_at']
 
     def validate_employee(self, employee):
@@ -63,20 +79,6 @@ class EmployeeSerializer(serializers.ModelSerializer):
         if candidate is not None and candidate.owner_id != self.context['request'].user.id:
             raise serializers.ValidationError("That candidate doesn't belong to you.")
         return candidate
-
-
-class EmployeeLiteSerializer(serializers.ModelSerializer):
-    """A trimmed view of Employee for nesting inside other serializers
-    (attendance, shifts, leave, surveys, recognition, promotions)."""
-
-    initials = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Employee
-        fields = ['id', 'name', 'initials', 'job_title', 'department']
-
-    def get_initials(self, obj):
-        return initials_for(obj.name)
 
 
 class EmployeePortalSerializer(serializers.ModelSerializer):
