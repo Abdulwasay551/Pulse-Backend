@@ -98,6 +98,23 @@ class ActivityLog(models.Model):
         return self.message
 
 
+class Announcement(models.Model):
+    """An HR-authored notice shown alongside ActivityLog entries in the main
+    HR dashboard's "Recent activity" feed (see core.views.AnnouncementViewSet)
+    — unlike ActivityLog, these are written directly by a user rather than
+    generated as a side effect of some other action."""
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='announcements')
+    message = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.message
+
+
 class DemoRequest(models.Model):
     """A submission of the public "Book a Demo" form."""
 

@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import DemoRequest, EmployeeInvite, Organization, UserProfile
+from .models import Announcement, DemoRequest, EmployeeInvite, Organization, UserProfile
 
 User = get_user_model()
 
@@ -159,3 +159,10 @@ class DemoRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = DemoRequest
         fields = ['full_name', 'email', 'contact_number', 'business_name', 'message']
+
+
+class AnnouncementSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Announcement
+        fields = ['id', 'message', 'created_at']
+        read_only_fields = ['id', 'created_at']

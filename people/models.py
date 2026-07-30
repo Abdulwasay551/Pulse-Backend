@@ -28,6 +28,9 @@ class Employee(models.Model):
     )
     hire_date = models.DateField(default=date.today)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
+    # Nullable — most employees imported/added before this field existed have
+    # no pay on record yet, and that's shown as "Not set" rather than $0.
+    monthly_salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     # If this person came through EVO-Recruit, link back to that record —
     # optional, since People also needs to support employees entered
     # directly (never having been a Candidate at all).

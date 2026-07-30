@@ -57,7 +57,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'initials', 'email', 'phone', 'job_title', 'department',
             'manager', 'manager_name', 'direct_reports_count', 'hire_date', 'status',
-            'source_candidate', 'portal_token', 'documents', 'created_at', 'updated_at',
+            'monthly_salary', 'source_candidate', 'portal_token', 'documents', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'portal_token', 'created_at', 'updated_at']
 

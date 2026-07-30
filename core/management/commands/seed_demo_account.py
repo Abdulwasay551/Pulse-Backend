@@ -7,7 +7,7 @@ from django.db import transaction
 
 from django.utils import timezone
 
-from core.models import ActivityLog
+from core.models import ActivityLog, Announcement
 from payroll_benefits.models import (
     BankAccount,
     BenefitClaim,
@@ -87,6 +87,7 @@ class Command(BaseCommand):
         Survey.objects.filter(owner=user).delete()
         Course.objects.filter(owner=user).delete()
         ActivityLog.objects.filter(owner=user).delete()
+        Announcement.objects.filter(owner=user).delete()
 
         clients = {
             'Northbridge Talent': Client.objects.create(
@@ -277,27 +278,27 @@ class Command(BaseCommand):
         # all show something real out of the box.
         cto = Employee.objects.create(
             owner=user, name='Marcus Webb', email='marcus.webb@evohr.demo', job_title='CTO',
-            department='Engineering', hire_date=d(1, 12), status='Active',
+            department='Engineering', hire_date=d(1, 12), status='Active', monthly_salary=18000,
         )
         eng_manager = Employee.objects.create(
             owner=user, name='Priya Chandran', email='priya.chandran@evohr.demo', job_title='Engineering Manager',
-            department='Engineering', manager=cto, hire_date=d(3, 4), status='Active',
+            department='Engineering', manager=cto, hire_date=d(3, 4), status='Active', monthly_salary=12500,
         )
         diego = Employee.objects.create(
             owner=user, name='Diego Fernandez', email='diego.fernandez@evohr.demo', job_title='Senior Engineer',
-            department='Engineering', manager=eng_manager, hire_date=d(4, 18), status='Active',
+            department='Engineering', manager=eng_manager, hire_date=d(4, 18), status='Active', monthly_salary=9800,
         )
         sofia = Employee.objects.create(
             owner=user, name='Sofia Marin', email='sofia.marin@evohr.demo', job_title='Engineer',
-            department='Engineering', manager=eng_manager, hire_date=d(6, 2), status='On Leave',
+            department='Engineering', manager=eng_manager, hire_date=d(6, 2), status='On Leave', monthly_salary=7200,
         )
         hr_lead = Employee.objects.create(
             owner=user, name='Jordan Ellis', email='jordan.ellis@evohr.demo', job_title='Head of People',
-            department='People Ops', hire_date=d(2, 9), status='Active',
+            department='People Ops', hire_date=d(2, 9), status='Active', monthly_salary=10500,
         )
         tasha = Employee.objects.create(
             owner=user, name='Tasha Reyes', email='tasha.reyes@evohr.demo', job_title='HR Coordinator',
-            department='People Ops', manager=hr_lead, hire_date=d(5, 20), status='Active',
+            department='People Ops', manager=hr_lead, hire_date=d(5, 20), status='Active', monthly_salary=5400,
         )
 
         # Attendance Management
@@ -307,10 +308,30 @@ class Command(BaseCommand):
         AttendanceRecord.objects.create(
             owner=user, employee=tasha, date=d(7, 24), clock_in='08:55', clock_out='17:30',
         )
-        Shift.objects.create(
-            owner=user, employee=diego, date=d(7, 28), start_time='09:00', end_time='17:30',
-            notes='On-call for the Engineering deploy window.',
+        AttendanceRecord.objects.create(
+            owner=user, employee=diego, date=d(7, 30), clock_in='09:05', clock_out=None,
         )
+        AttendanceRecord.objects.create(
+            owner=user, employee=tasha, date=d(7, 30), clock_in='08:48', clock_out=None,
+        )
+        AttendanceRecord.objects.create(
+            owner=user, employee=eng_manager, date=d(7, 30), clock_in='08:57', clock_out=None,
+        )
+
+        # Shift Scheduling per Department — a working week (Mon–Fri, 7/27–7/31)
+        # per employee, so the People dashboard's schedule views have a real
+        # weekly pattern to group and display rather than a single one-off shift.
+        for wk_date, notes in [
+            (d(7, 27), ''), (d(7, 28), 'On-call for the Engineering deploy window.'),
+            (d(7, 29), ''), (d(7, 30), ''), (d(7, 31), ''),
+        ]:
+            Shift.objects.create(owner=user, employee=diego, date=wk_date, start_time='09:00', end_time='17:30', notes=notes)
+        for wk_date in [d(7, 27), d(7, 28), d(7, 29), d(7, 30), d(7, 31)]:
+            Shift.objects.create(owner=user, employee=eng_manager, date=wk_date, start_time='09:00', end_time='17:00')
+            Shift.objects.create(owner=user, employee=hr_lead, date=wk_date, start_time='08:30', end_time='16:30')
+            Shift.objects.create(owner=user, employee=tasha, date=wk_date, start_time='08:30', end_time='17:00')
+        for wk_date in [d(7, 27), d(7, 29), d(7, 31)]:
+            Shift.objects.create(owner=user, employee=sofia, date=wk_date, start_time='10:00', end_time='15:00')
         LeaveRequest.objects.create(
             owner=user, employee=sofia, leave_type='Sick', start_date=d(7, 22), end_date=d(7, 29),
             status='Approved', reason='Recovering from minor surgery.',
@@ -536,6 +557,13 @@ class Command(BaseCommand):
         # in the same order the original static list displayed them in.
         for message, tone in reversed(activity_items):
             ActivityLog.objects.create(owner=user, message=message, tone=tone)
+
+        announcements = [
+            'All-hands meeting Friday at 4 PM ET — Q3 company update from Marcus.',
+            'Reminder: Q3 performance reviews are due by August 15.',
+        ]
+        for message in reversed(announcements):
+            Announcement.objects.create(owner=user, message=message)
 
         self.stdout.write(self.style.SUCCESS(
             f"{'Created' if created else 'Reset'} demo account: username={DEMO_USERNAME!r} password={password!r}"

@@ -1,4 +1,5 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
 from .auth_views import (
     ChangePasswordView,
@@ -13,6 +14,10 @@ from .auth_views import (
 from .demo_views import DemoRequestCreateView
 from .hr_views import EmployeeAccountCreateView, EmployeeInviteView, InviteDetailView
 from .my_views import ClockInView, ClockOutView, MyDashboardView
+from .views import AnnouncementViewSet
+
+router = DefaultRouter()
+router.register('announcements', AnnouncementViewSet, basename='announcement')
 
 urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='auth-register'),
@@ -32,4 +37,5 @@ urlpatterns = [
     path('my/dashboard/', MyDashboardView.as_view(), name='my-dashboard'),
     path('my/clock-in/', ClockInView.as_view(), name='my-clock-in'),
     path('my/clock-out/', ClockOutView.as_view(), name='my-clock-out'),
+    path('', include(router.urls)),
 ]
