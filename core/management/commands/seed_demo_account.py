@@ -7,7 +7,8 @@ from django.db import transaction
 
 from django.utils import timezone
 
-from core.models import ActivityLog, Announcement
+from core.hr_views import get_or_create_hr_profile
+from core.models import ActivityLog, Announcement, UserProfile
 from payroll_benefits.models import (
     BankAccount,
     BenefitClaim,
@@ -63,6 +64,26 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         password = os.getenv('DEMO_ACCOUNT_PASSWORD', 'EvoHRDemo2026!')
 
+        def seed_role_account(username, role, *, first_name='', last_name='', employee=None, department=''):
+            """Creates (or resets the password/profile on) a demo login for
+            one of the newer roles — same idempotent get-or-create shape as
+            the main 'demo' user, so re-running this command doesn't error
+            on a second pass."""
+            u, _ = User.objects.get_or_create(
+                username=username,
+                defaults={'email': f'{username}@evohr.demo', 'first_name': first_name, 'last_name': last_name},
+            )
+            u.email = f'{username}@evohr.demo'
+            u.first_name = first_name
+            u.last_name = last_name
+            u.set_password(password)
+            u.save()
+            UserProfile.objects.update_or_create(
+                user=u,
+                defaults={'role': role, 'organization': org, 'employee': employee, 'department': department},
+            )
+            return u
+
         user, created = User.objects.get_or_create(
             username=DEMO_USERNAME,
             defaults={'email': 'demo@evohr.app', 'first_name': 'Jordan', 'last_name': 'Blake'},
@@ -72,6 +93,7 @@ class Command(BaseCommand):
         user.last_name = 'Blake'
         user.set_password(password)
         user.save()
+        org = get_or_create_hr_profile(user).organization
 
         # Idempotent: wipe this user's existing rows before reseeding so the
         # command can be re-run to reset the demo account to a clean
@@ -300,6 +322,17 @@ class Command(BaseCommand):
             owner=user, name='Tasha Reyes', email='tasha.reyes@evohr.demo', job_title='HR Coordinator',
             department='People Ops', manager=hr_lead, hire_date=d(5, 20), status='Active', monthly_salary=5400,
         )
+
+        # Demo logins for the 4 newer roles (IT Manager/Finance Admin are
+        # normally Admin/superuser-provisioned via Django admin, not this
+        # HR-owned flow, but seeding them here directly gives the demo org a
+        # working login for every role without needing a separate manual
+        # step). Same password as the main 'demo' account.
+        seed_role_account('demo_dept_head', 'Department Head', first_name='Priya', last_name='Chandran (Dept Head)',
+                           employee=eng_manager, department='Engineering')
+        seed_role_account('demo_recruiter', 'Recruiter', first_name='Recruiter', last_name='Demo')
+        seed_role_account('demo_it_manager', 'IT Manager', first_name='IT', last_name='Manager Demo')
+        seed_role_account('demo_finance_admin', 'Finance Admin', first_name='Finance', last_name='Admin Demo')
 
         # Attendance Management
         AttendanceRecord.objects.create(
@@ -567,4 +600,8 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"{'Created' if created else 'Reset'} demo account: username={DEMO_USERNAME!r} password={password!r}"
+        ))
+        role_usernames = ['demo_dept_head', 'demo_recruiter', 'demo_it_manager', 'demo_finance_admin']
+        self.stdout.write(self.style.SUCCESS(
+            f"Role demo logins (same password): {', '.join(role_usernames)}"
         ))

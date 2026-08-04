@@ -1,9 +1,12 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
-from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from unfold.admin import ModelAdmin, StackedInline
-
+from django.contrib.auth.models import User, Group
+from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import ActivityLog, DemoRequest, EmployeeInvite, Organization, UserProfile
+from unfold.forms import AdminPasswordChangeForm, UserChangeForm, UserCreationForm
+
 
 User = get_user_model()
 
@@ -20,12 +23,21 @@ class UserProfileInline(StackedInline):
 
 
 admin.site.unregister(User)
+admin.site.unregister(Group)
 
 
 @admin.register(User)
-class UserAdmin(DjangoUserAdmin, ModelAdmin):
+class UserAdmin(BaseUserAdmin, ModelAdmin):
+    # Forms loaded from `unfold.forms`
+    form = UserChangeForm
+    add_form = UserCreationForm
+    change_password_form = AdminPasswordChangeForm
     inlines = [UserProfileInline]
 
+
+@admin.register(Group)
+class GroupAdmin(BaseGroupAdmin, ModelAdmin):
+    pass
 
 @admin.register(Organization)
 class OrganizationAdmin(ModelAdmin):
