@@ -9,6 +9,7 @@ from .views import (
     EmployeeScoreView,
     EnrollmentViewSet,
     GoalViewSet,
+    RecruiterFeedbackViewSet,
     SuccessionPlanViewSet,
     TalentDashboardSummaryView,
 )
@@ -21,6 +22,7 @@ router.register('courses', CourseViewSet, basename='course')
 router.register('enrollments', EnrollmentViewSet, basename='enrollment')
 router.register('career-paths', CareerPathViewSet, basename='career-path')
 router.register('succession-plans', SuccessionPlanViewSet, basename='succession-plan')
+router.register('recruiter-feedback', RecruiterFeedbackViewSet, basename='recruiter-feedback')
 
 urlpatterns = [
     path('dashboard-summary/', TalentDashboardSummaryView.as_view(), name='talent-dashboard-summary'),

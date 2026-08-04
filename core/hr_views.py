@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from people.models import Employee
 
 from .models import EmployeeInvite, Organization, UserProfile
-from .permissions import IsHR
+from .permissions import IsHR, owner_scope_id
 
 User = get_user_model()
 
@@ -42,7 +42,7 @@ class EmployeeInviteView(APIView):
         if not employee_id or not email:
             return Response({'detail': 'employee and email are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        employee = get_object_or_404(Employee, id=employee_id, owner=request.user)
+        employee = get_object_or_404(Employee, id=employee_id, owner_id=owner_scope_id(request))
         profile = get_or_create_hr_profile(request.user)
 
         invite = EmployeeInvite.objects.create(
@@ -81,9 +81,19 @@ class InviteDetailView(APIView):
         )
 
 
+ROLES_HR_CAN_CREATE = {'Employee', 'Department Head', 'Recruiter'}
+
+
 class EmployeeAccountCreateView(APIView):
     """HR sets a username/password directly for one of their employees —
-    no email/self-signup step. Creates the login immediately."""
+    no email/self-signup step. Creates the login immediately.
+
+    Also doubles as the provisioning endpoint for Department Head and
+    Recruiter accounts (same shape: an existing Employee record gets a
+    login), since duplicating the username/password validation in a
+    separate view would be pure repetition. IT Manager/Finance Admin are
+    deliberately NOT accepted here — those are Admin (superuser)-only,
+    provisioned via Django admin instead."""
 
     permission_classes = [IsAuthenticated, IsHR]
 
@@ -91,10 +101,22 @@ class EmployeeAccountCreateView(APIView):
         employee_id = request.data.get('employee')
         username = request.data.get('username', '').strip()
         password = request.data.get('password', '')
+        role = request.data.get('role', 'Employee')
+        department = request.data.get('department', '').strip()
         if not employee_id or not username or not password:
             return Response({'detail': 'employee, username, and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if role not in ROLES_HR_CAN_CREATE:
+            return Response(
+                {'role': ['Invalid role — must be Employee, Department Head, or Recruiter.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role == 'Department Head' and not department:
+            return Response(
+                {'department': ['department is required for a Department Head account.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        employee = get_object_or_404(Employee, id=employee_id, owner=request.user)
+        employee = get_object_or_404(Employee, id=employee_id, owner_id=owner_scope_id(request))
         if hasattr(employee, 'user_accounts') and employee.user_accounts.exists():
             return Response({'detail': 'This employee already has a login.'}, status=status.HTTP_400_BAD_REQUEST)
         if User.objects.filter(username__iexact=username).exists():
@@ -107,6 +129,9 @@ class EmployeeAccountCreateView(APIView):
 
         profile = get_or_create_hr_profile(request.user)
         user = User.objects.create_user(username=username, email=employee.email, password=password)
-        UserProfile.objects.create(user=user, role='Employee', organization=profile.organization, employee=employee)
+        UserProfile.objects.create(
+            user=user, role=role, organization=profile.organization, employee=employee,
+            department=department if role == 'Department Head' else '',
+        )
 
-        return Response({'detail': 'Account created.', 'username': username}, status=status.HTTP_201_CREATED)
+        return Response({'detail': 'Account created.', 'username': username, 'role': role}, status=status.HTTP_201_CREATED)

@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from core.permissions import owner_scope_id
+
 from people.serializers import EmployeeLiteSerializer
 
 from .models import (
@@ -41,7 +43,7 @@ class TaxProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class ComplianceEventSerializer(serializers.ModelSerializer):
@@ -81,7 +83,7 @@ class BankAccountSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'account_number_last4', 'created_at', 'updated_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def create(self, validated_data):
         account_number = validated_data.pop('account_number')
@@ -123,10 +125,10 @@ class BenefitEnrollmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_plan(self, plan):
-        if plan.owner_id != self.context['request'].user.id:
+        if plan.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That benefit plan doesn't belong to you.")
         return plan
 
@@ -144,9 +146,9 @@ class BenefitClaimSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'submitted_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_plan(self, plan):
-        if plan and plan.owner_id != self.context['request'].user.id:
+        if plan and plan.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That benefit plan doesn't belong to you.")
         return plan

@@ -13,7 +13,15 @@ from rest_framework.views import APIView
 from core.activity import log_activity
 from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
 from core.models import ActivityLog
-from core.permissions import IsHR, IsOwner
+from core.permissions import (
+    IsDepartmentHeadRequisitionAccess,
+    IsHR,
+    IsITManagerTaskAccess,
+    IsOwner,
+    IsRecruiter,
+    _role_is,
+    owner_scope_id,
+)
 from payroll_benefits.models import PayrollRun
 
 from .ai_screening import score_candidate
@@ -65,15 +73,16 @@ CANDIDATE_REQUIRED_FIELDS = ['name', 'role']
 class OwnedModelViewSet(viewsets.ModelViewSet):
     """Every Recruit resource is scoped to its owner, both for listing and
     for object-level access — shared here so each viewset only adds what's
-    specific to it."""
+    specific to it. Recruiter gets the same full-tier access as HR/Admin
+    across this whole app."""
 
-    permission_classes = [IsAuthenticated, IsOwner]
+    permission_classes = [IsAuthenticated, IsOwner | IsRecruiter]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        return self.queryset.filter(owner_id=owner_scope_id(self.request))
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
 class ClientViewSet(OwnedModelViewSet):
@@ -81,8 +90,8 @@ class ClientViewSet(OwnedModelViewSet):
     serializer_class = ClientSerializer
 
     def perform_create(self, serializer):
-        client = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'New client added: {client.name}', 'neutral')
+        client = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'New client added: {client.name}', 'neutral')
 
     @action(detail=False, methods=['get'])
     def export(self, request):
@@ -109,13 +118,18 @@ class ClientViewSet(OwnedModelViewSet):
 
 
 class RequisitionViewSet(OwnedModelViewSet):
+    """Department Head may also view every requisition and create new ones
+    ("request for recruit") on top of HR/Admin/Recruiter's full access —
+    never update/delete an existing one."""
+
     queryset = Requisition.objects.select_related('client').all()
     serializer_class = RequisitionSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsRecruiter | IsDepartmentHeadRequisitionAccess]
 
     def perform_create(self, serializer):
-        requisition = serializer.save(owner=self.request.user)
+        requisition = serializer.save(owner_id=owner_scope_id(self.request))
         log_activity(
-            self.request.user,
+            owner_scope_id(self.request),
             f'New requisition opened: {requisition.title} at {requisition.client.name}',
             'neutral',
         )
@@ -126,22 +140,23 @@ class CandidateViewSet(OwnedModelViewSet):
     serializer_class = CandidateSerializer
 
     def perform_create(self, serializer):
-        candidate = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'{candidate.name} added as a candidate for {candidate.role}', 'neutral')
+        candidate = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'{candidate.name} added as a candidate for {candidate.role}', 'neutral')
 
     def perform_update(self, serializer):
         previous_stage = serializer.instance.stage
         candidate = serializer.save()
+        uid = owner_scope_id(self.request)
         if candidate.stage != previous_stage:
             if candidate.stage == 'Placed':
-                log_activity(self.request.user, f'{candidate.name} placed as {candidate.role}', 'primary')
+                log_activity(uid, f'{candidate.name} placed as {candidate.role}', 'primary')
             elif candidate.stage == 'Rejected':
-                log_activity(self.request.user, f'{candidate.name} marked not a fit for {candidate.role}', 'maroon')
+                log_activity(uid, f'{candidate.name} marked not a fit for {candidate.role}', 'maroon')
             elif candidate.stage == 'Offer':
-                log_activity(self.request.user, f'Offer sent to {candidate.name} for {candidate.role}', 'primary')
+                log_activity(uid, f'Offer sent to {candidate.name} for {candidate.role}', 'primary')
             else:
                 log_activity(
-                    self.request.user,
+                    uid,
                     f'{candidate.name} advanced to {candidate.stage} for {candidate.role}',
                     'primary',
                 )
@@ -210,23 +225,24 @@ class OfferLetterViewSet(OwnedModelViewSet):
     serializer_class = OfferLetterSerializer
 
     def perform_create(self, serializer):
-        offer = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'Offer letter drafted for {offer.candidate.name}', 'neutral')
+        offer = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'Offer letter drafted for {offer.candidate.name}', 'neutral')
 
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
         offer = serializer.save()
+        uid = owner_scope_id(self.request)
         if offer.status != previous_status:
             if offer.status == 'Sent' and not offer.sent_at:
                 offer.sent_at = timezone.now()
                 offer.save(update_fields=['sent_at'])
-                log_activity(self.request.user, f'Offer letter sent to {offer.candidate.name}', 'primary')
+                log_activity(uid, f'Offer letter sent to {offer.candidate.name}', 'primary')
             elif offer.status == 'Signed' and not offer.signed_at:
                 offer.signed_at = timezone.now()
                 offer.save(update_fields=['signed_at'])
-                log_activity(self.request.user, f'{offer.candidate.name} signed their offer letter', 'primary')
+                log_activity(uid, f'{offer.candidate.name} signed their offer letter', 'primary')
             elif offer.status == 'Declined':
-                log_activity(self.request.user, f'{offer.candidate.name} declined their offer letter', 'maroon')
+                log_activity(uid, f'{offer.candidate.name} declined their offer letter', 'maroon')
 
 
 class BackgroundCheckViewSet(OwnedModelViewSet):
@@ -234,9 +250,9 @@ class BackgroundCheckViewSet(OwnedModelViewSet):
     serializer_class = BackgroundCheckSerializer
 
     def perform_create(self, serializer):
-        check = serializer.save(owner=self.request.user, initiated_at=timezone.now())
+        check = serializer.save(owner_id=owner_scope_id(self.request), initiated_at=timezone.now())
         log_activity(
-            self.request.user, f'{check.get_check_type_display()} check started for {check.candidate.name}', 'neutral'
+            owner_scope_id(self.request), f'{check.get_check_type_display()} check started for {check.candidate.name}', 'neutral'
         )
 
     def perform_update(self, serializer):
@@ -246,7 +262,7 @@ class BackgroundCheckViewSet(OwnedModelViewSet):
             check.completed_at = timezone.now()
             check.save(update_fields=['completed_at'])
             tone = 'primary' if check.status == 'Cleared' else 'maroon'
-            log_activity(self.request.user, f'{check.candidate.name} background check: {check.status}', tone)
+            log_activity(owner_scope_id(self.request), f'{check.candidate.name} background check: {check.status}', tone)
 
 
 class OnboardingViewSet(OwnedModelViewSet):
@@ -254,22 +270,27 @@ class OnboardingViewSet(OwnedModelViewSet):
     serializer_class = OnboardingSerializer
 
     def perform_create(self, serializer):
-        onboarding = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'Onboarding started for {onboarding.candidate.name}', 'neutral')
+        onboarding = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'Onboarding started for {onboarding.candidate.name}', 'neutral')
 
 
 class OnboardingTaskViewSet(viewsets.ModelViewSet):
     """No IsOwner here — OnboardingTask has no `owner` field of its own
     (only its parent Onboarding does), so that permission's `obj.owner_id`
     check doesn't apply. Ownership is enforced entirely by scoping the
-    queryset to the parent's owner, same "404 not 403" effect."""
+    queryset to the parent's owner, same "404 not 403" effect. IT Manager
+    gets a narrow view+update slice of just the Device Assignment rows
+    ("device tasks")."""
 
     queryset = OnboardingTask.objects.select_related('onboarding').all()
     serializer_class = OnboardingTaskSerializer
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsRecruiter | IsITManagerTaskAccess]
 
     def get_queryset(self):
-        return self.queryset.filter(onboarding__owner=self.request.user)
+        qs = self.queryset.filter(onboarding__owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'IT Manager'):
+            qs = qs.filter(category='Device Assignment')
+        return qs
 
 
 class OffboardingViewSet(OwnedModelViewSet):
@@ -277,20 +298,24 @@ class OffboardingViewSet(OwnedModelViewSet):
     serializer_class = OffboardingSerializer
 
     def perform_create(self, serializer):
-        offboarding = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'Offboarding started for {offboarding.candidate.name}', 'amber')
+        offboarding = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'Offboarding started for {offboarding.candidate.name}', 'amber')
 
 
 class OffboardingTaskViewSet(viewsets.ModelViewSet):
     """Same reasoning as OnboardingTaskViewSet — no IsOwner, ownership comes
-    from scoping the queryset to the parent Offboarding's owner."""
+    from scoping the queryset to the parent Offboarding's owner. IT Manager
+    gets a narrow view+update slice of just the Hardware Clearance rows."""
 
     queryset = OffboardingTask.objects.select_related('offboarding').all()
     serializer_class = OffboardingTaskSerializer
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsRecruiter | IsITManagerTaskAccess]
 
     def get_queryset(self):
-        return self.queryset.filter(offboarding__owner=self.request.user)
+        qs = self.queryset.filter(offboarding__owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'IT Manager'):
+            qs = qs.filter(category='Hardware Clearance')
+        return qs
 
 
 def _import_preview(request, field_labels):
@@ -352,11 +377,11 @@ def _import_commit(request, *, serializer_class, required_fields, valid_fields, 
             errors.append(f'Row {i}: {first_field} — {first_errors[0]}')
             continue
 
-        serializer.save(owner=request.user)
+        serializer.save(owner_id=owner_scope_id(request))
         created += 1
 
     if created:
-        on_created(request.user, created)
+        on_created(owner_scope_id(request), created)
 
     return Response({'created': created, 'errors': errors})
 
@@ -388,13 +413,13 @@ class DashboardSummaryView(APIView):
     reads from payroll_benefits.PayrollRun since placement-fee revenue is
     tracked as payroll, not as a Recruit-owned figure."""
 
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsRecruiter]
 
     def get(self, request):
-        user = request.user
-        candidates = Candidate.objects.filter(owner=user)
-        requisitions = Requisition.objects.filter(owner=user)
-        payroll_runs = PayrollRun.objects.filter(owner=user)
+        uid = owner_scope_id(request)
+        candidates = Candidate.objects.filter(owner_id=uid)
+        requisitions = Requisition.objects.filter(owner_id=uid)
+        payroll_runs = PayrollRun.objects.filter(owner_id=uid)
 
         today = timezone.now().date()
         month_start = today.replace(day=1)
@@ -482,7 +507,7 @@ class DashboardSummaryView(APIView):
                 'time': _relative_time(item.created_at),
                 'tone': item.tone,
             }
-            for item in ActivityLog.objects.filter(owner=user)[:6]
+            for item in ActivityLog.objects.filter(owner_id=uid)[:6]
         ]
 
         return Response(

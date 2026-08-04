@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from core.permissions import owner_scope_id
+
 from .models import (
     AttendanceRecord,
     Employee,
@@ -41,7 +43,7 @@ class EmployeeDocumentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'uploaded_at']
 
     def validate_employee(self, employee):
-        if employee.owner_id != self.context['request'].user.id:
+        if employee.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That employee doesn't belong to you.")
         return employee
 
@@ -69,14 +71,14 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     def validate_manager(self, manager):
         if manager is not None:
-            if manager.owner_id != self.context['request'].user.id:
+            if manager.owner_id != owner_scope_id(self.context['request']):
                 raise serializers.ValidationError("That manager doesn't belong to you.")
             if self.instance is not None and manager.id == self.instance.id:
                 raise serializers.ValidationError("An employee can't manage themselves.")
         return manager
 
     def validate_source_candidate(self, candidate):
-        if candidate is not None and candidate.owner_id != self.context['request'].user.id:
+        if candidate is not None and candidate.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That candidate doesn't belong to you.")
         return candidate
 
@@ -115,7 +117,7 @@ class AttendanceRecordSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class ShiftSerializer(serializers.ModelSerializer):
@@ -127,7 +129,7 @@ class ShiftSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class LeaveRequestSerializer(serializers.ModelSerializer):
@@ -142,7 +144,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class SurveyResponseSerializer(serializers.ModelSerializer):
@@ -154,10 +156,10 @@ class SurveyResponseSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'submitted_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_survey(self, survey):
-        if survey.owner_id != self.context['request'].user.id:
+        if survey.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That survey doesn't belong to you.")
         return survey
 
@@ -192,7 +194,7 @@ class RecognitionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class PromotionRequestSerializer(serializers.ModelSerializer):
@@ -207,4 +209,4 @@ class PromotionRequestSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))

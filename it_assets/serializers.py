@@ -2,6 +2,8 @@ from datetime import date, timedelta
 
 from rest_framework import serializers
 
+from core.permissions import owner_scope_id
+
 from people.serializers import EmployeeLiteSerializer
 
 from .models import Asset, AssetIncident, BYODCompliance, SupportTicket
@@ -28,7 +30,7 @@ class AssetSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_assigned_to(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def get_warranty_status(self, obj):
         if not obj.warranty_expiry:
@@ -57,10 +59,10 @@ class SupportTicketSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_asset(self, asset):
-        if asset and asset.owner_id != self.context['request'].user.id:
+        if asset and asset.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That asset doesn't belong to you.")
         return asset
 
@@ -79,10 +81,10 @@ class AssetIncidentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_asset(self, asset):
-        if asset.owner_id != self.context['request'].user.id:
+        if asset.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That asset doesn't belong to you.")
         return asset
 
@@ -101,9 +103,9 @@ class BYODComplianceSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_asset(self, asset):
-        if asset.owner_id != self.context['request'].user.id:
+        if asset.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That asset doesn't belong to you.")
         return asset

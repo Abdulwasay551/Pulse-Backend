@@ -3,10 +3,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from it_assets.models import SupportTicket
+from it_assets.serializers import SupportTicketSerializer
+from payroll_benefits.models import BenefitClaim
+from payroll_benefits.serializers import BenefitClaimSerializer
 from people.models import AttendanceRecord
 from people.serializers import EmployeeLiteSerializer
-from talent.models import Goal
-from talent.serializers import GoalSerializer
+from recruit.serializers import OnboardingTaskSerializer
+from talent.models import Appraisal, CompetencyRating, Goal
+from talent.serializers import AppraisalSerializer, CompetencyRatingSerializer, GoalSerializer
 
 from .models import ActivityLog
 
@@ -105,3 +110,106 @@ class ClockOutView(APIView):
         record.clock_out = timezone.now().time()
         record.save(update_fields=['clock_out'])
         return Response({'clock_in': record.clock_in, 'clock_out': record.clock_out})
+
+
+class MyOnboardingChecklistView(APIView):
+    """An Employee's own onboarding checklist — Onboarding/OnboardingTask
+    actually live in the recruit app keyed off Candidate, not Employee, so
+    this resolves the link back through Employee.source_candidate. Employees
+    added directly (never a Candidate) simply have no checklist to show."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+
+        candidate = profile.employee.source_candidate
+        onboarding = getattr(candidate, 'onboarding', None) if candidate else None
+        if onboarding is None:
+            return Response({'onboarding': None, 'tasks': []})
+        return Response(
+            {
+                'onboarding': {'status': onboarding.status, 'start_date': onboarding.start_date},
+                'tasks': OnboardingTaskSerializer(onboarding.tasks.all(), many=True).data,
+            }
+        )
+
+
+class MyTalentView(APIView):
+    """An Employee's own Talent Management records — read-only."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+
+        employee = profile.employee
+        return Response(
+            {
+                'goals': GoalSerializer(Goal.objects.filter(employee=employee), many=True).data,
+                'appraisals': AppraisalSerializer(Appraisal.objects.filter(employee=employee), many=True).data,
+                'competency_ratings': CompetencyRatingSerializer(
+                    CompetencyRating.objects.filter(employee=employee), many=True
+                ).data,
+            }
+        )
+
+
+class MyBenefitClaimsView(APIView):
+    """An Employee submits and views only their own benefit claims."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+        claims = BenefitClaim.objects.filter(employee=profile.employee)
+        return Response(BenefitClaimSerializer(claims, many=True).data)
+
+    def post(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+        # An employee submits a claim, they don't get to decide its
+        # status — strip it so the model default ('Submitted') always wins,
+        # no matter what the request body contains.
+        data = {k: v for k, v in request.data.items() if k != 'status'}
+        serializer = BenefitClaimSerializer(
+            data={**data, 'employee': profile.employee_id}, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(owner_id=profile.data_owner_id)
+        return Response(serializer.data, status=201)
+
+
+class MySupportTicketsView(APIView):
+    """An Employee submits and views only their own IT support tickets."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+        tickets = SupportTicket.objects.filter(employee=profile.employee)
+        return Response(SupportTicketSerializer(tickets, many=True).data)
+
+    def post(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+        # Same reasoning as MyBenefitClaimsView — an employee doesn't get
+        # to set a ticket's status; it always starts at the model default
+        # ('Open').
+        data = {k: v for k, v in request.data.items() if k != 'status'}
+        serializer = SupportTicketSerializer(
+            data={**data, 'employee': profile.employee_id}, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save(owner_id=profile.data_owner_id)
+        return Response(serializer.data, status=201)

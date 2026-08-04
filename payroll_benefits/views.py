@@ -1,11 +1,19 @@
 from django.utils import timezone
 from rest_framework import viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.activity import log_activity
-from core.permissions import IsHR, IsOwner
+from core.permissions import (
+    IsDepartmentHeadReadOnly,
+    IsFinanceAdmin,
+    IsHR,
+    IsOwner,
+    _role_is,
+    owner_scope_id,
+)
 
 from .models import (
     BankAccount,
@@ -28,32 +36,60 @@ from .serializers import (
 
 
 class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
-    """Shared base — every model in this app has its own `owner` field."""
+    """Shared base — every model in this app has its own `owner` field.
+    Finance Admin gets the same full-tier access as HR/Admin across this
+    whole app."""
 
-    permission_classes = [IsAuthenticated, IsOwner]
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        return self.queryset.filter(owner_id=owner_scope_id(self.request))
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
 class PayrollRunViewSet(OwnedPayrollBenefitsViewSet):
+    """Finance Admin may create/update a payroll run, but can never mark it
+    'Reconciled' themselves — that final sign-off stays HR/Admin-only, the
+    "approval required" gate for payroll processing."""
+
     queryset = PayrollRun.objects.all()
     serializer_class = PayrollRunSerializer
 
     def perform_create(self, serializer):
-        run = serializer.save(owner=self.request.user)
+        if _role_is(self.request, 'Finance Admin') and serializer.validated_data.get('status') == 'Reconciled':
+            raise PermissionDenied('Only HR or an Admin can mark a payroll run as Reconciled.')
+        run = serializer.save(owner_id=owner_scope_id(self.request))
         if run.status == 'Needs review':
-            log_activity(self.request.user, f'{run.period} payroll needs review', 'amber')
+            log_activity(owner_scope_id(self.request), f'{run.period} payroll needs review', 'amber')
         else:
-            log_activity(self.request.user, f'{run.period} payroll processed', 'primary')
+            log_activity(owner_scope_id(self.request), f'{run.period} payroll processed', 'primary')
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        new_status = serializer.validated_data.get('status', previous_status)
+        if new_status == 'Reconciled' and previous_status != 'Reconciled' and _role_is(self.request, 'Finance Admin'):
+            raise PermissionDenied('Only HR or an Admin can mark a payroll run as Reconciled.')
+        serializer.save()
 
 
-class TaxProfileViewSet(OwnedPayrollBenefitsViewSet):
+class TaxProfileViewSet(viewsets.ModelViewSet):
+    """Department Head gets read-only access scoped to their own
+    department on top of HR/Admin/Finance Admin's full access."""
+
     queryset = TaxProfile.objects.select_related('employee').all()
     serializer_class = TaxProfileSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
 class ComplianceEventViewSet(OwnedPayrollBenefitsViewSet):
@@ -61,9 +97,22 @@ class ComplianceEventViewSet(OwnedPayrollBenefitsViewSet):
     serializer_class = ComplianceEventSerializer
 
 
-class BankAccountViewSet(OwnedPayrollBenefitsViewSet):
+class BankAccountViewSet(viewsets.ModelViewSet):
+    """Department Head gets read-only access scoped to their own
+    department on top of HR/Admin/Finance Admin's full access."""
+
     queryset = BankAccount.objects.select_related('employee').all()
     serializer_class = BankAccountSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
 class BenefitPlanViewSet(OwnedPayrollBenefitsViewSet):
@@ -71,9 +120,22 @@ class BenefitPlanViewSet(OwnedPayrollBenefitsViewSet):
     serializer_class = BenefitPlanSerializer
 
 
-class BenefitEnrollmentViewSet(OwnedPayrollBenefitsViewSet):
+class BenefitEnrollmentViewSet(viewsets.ModelViewSet):
+    """Department Head gets read-only access scoped to their own
+    department on top of HR/Admin/Finance Admin's full access."""
+
     queryset = BenefitEnrollment.objects.select_related('employee', 'plan').all()
     serializer_class = BenefitEnrollmentSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
@@ -86,9 +148,22 @@ class BenefitEnrollmentViewSet(OwnedPayrollBenefitsViewSet):
             instance.save(update_fields=['terminated_at'])
 
 
-class BenefitClaimViewSet(OwnedPayrollBenefitsViewSet):
+class BenefitClaimViewSet(viewsets.ModelViewSet):
+    """Department Head gets read-only access scoped to their own
+    department on top of HR/Admin/Finance Admin's full access."""
+
     queryset = BenefitClaim.objects.select_related('employee', 'plan').all()
     serializer_class = BenefitClaimSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
@@ -96,23 +171,23 @@ class BenefitClaimViewSet(OwnedPayrollBenefitsViewSet):
         if previous_status not in ('Approved', 'Rejected', 'Paid') and instance.status in ('Approved', 'Rejected', 'Paid'):
             instance.resolved_at = timezone.now()
             instance.save(update_fields=['resolved_at'])
-            log_activity(self.request.user, f'{instance.claim_type} claim {instance.status.lower()}', 'primary')
+            log_activity(owner_scope_id(self.request), f'{instance.claim_type} claim {instance.status.lower()}', 'primary')
 
 
 class PayrollBenefitsDashboardSummaryView(APIView):
     """EVO-Payroll & Benefits' overview numbers, computed live from the
     user's own rows — nothing here is stored/cached."""
 
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsFinanceAdmin]
 
     def get(self, request):
-        user = request.user
-        runs = PayrollRun.objects.filter(owner=user)
-        tax_profiles = TaxProfile.objects.filter(owner=user)
-        events = ComplianceEvent.objects.filter(owner=user, completed=False)
-        enrollments = BenefitEnrollment.objects.filter(owner=user)
-        claims = BenefitClaim.objects.filter(owner=user)
-        plans = BenefitPlan.objects.filter(owner=user)
+        uid = owner_scope_id(request)
+        runs = PayrollRun.objects.filter(owner_id=uid)
+        tax_profiles = TaxProfile.objects.filter(owner_id=uid)
+        events = ComplianceEvent.objects.filter(owner_id=uid, completed=False)
+        enrollments = BenefitEnrollment.objects.filter(owner_id=uid)
+        claims = BenefitClaim.objects.filter(owner_id=uid)
+        plans = BenefitPlan.objects.filter(owner_id=uid)
 
         latest_run = runs.first()
         needs_review = runs.filter(status='Needs review').count()

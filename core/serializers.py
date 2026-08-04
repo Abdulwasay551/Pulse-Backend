@@ -69,11 +69,18 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({'password': list(exc.messages)})
 
         invite_token = attrs.get('invite_token')
-        if invite_token:
-            invite = EmployeeInvite.objects.filter(token=invite_token, accepted_at__isnull=True).first()
-            if invite is None:
-                raise serializers.ValidationError({'invite_token': 'This invite link is invalid or already used.'})
-            attrs['_invite'] = invite
+        if not invite_token:
+            # Public self-signup (a brand-new Organization + HR profile from
+            # just organization_name) is disabled for now — every signup
+            # must come from an HR/Admin-issued EmployeeInvite. Revert by
+            # deleting this guard; create()'s org-creation branch is
+            # untouched and still works once an invite_token is required.
+            raise serializers.ValidationError({'invite_token': 'Sign-up is currently invite-only.'})
+
+        invite = EmployeeInvite.objects.filter(token=invite_token, accepted_at__isnull=True).first()
+        if invite is None:
+            raise serializers.ValidationError({'invite_token': 'This invite link is invalid or already used.'})
+        attrs['_invite'] = invite
         return attrs
 
     def create(self, validated_data):

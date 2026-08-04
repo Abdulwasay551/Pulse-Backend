@@ -22,10 +22,13 @@ class Organization(models.Model):
 
 
 class UserProfile(models.Model):
-    """Role + organization membership for a login. Every user who signs up
-    the normal way becomes HR with a brand-new Organization; an Employee
-    account is only ever created by an HR user (direct account creation or
-    an email invite) and joins that HR's Organization.
+    """Role + organization membership for a login. Multiple logins now
+    share one Organization — an HR founder plus whichever of IT Manager/
+    Finance Admin/Department Head/Recruiter/Employee accounts they (or an
+    Admin, i.e. a Django superuser) have created for it. Public self-signup
+    is invite-only for now (see RegisterSerializer), so every profile here
+    traces back to either the original founder or an explicit HR/Admin
+    provisioning action.
 
     Pre-existing users (created before this feature shipped) have no
     profile row at all — every permission/role check here treats a missing
@@ -34,16 +37,24 @@ class UserProfile(models.Model):
     ROLE_CHOICES = [
         ('HR', 'HR'),
         ('Employee', 'Employee'),
+        ('IT Manager', 'IT Manager'),
+        ('Finance Admin', 'Finance Admin'),
+        ('Department Head', 'Department Head'),
+        ('Recruiter', 'Recruiter'),
     ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
-    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='HR')
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='HR')
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='members')
     # Which people.Employee record this login *is* — only ever set for
     # Employee-role profiles, used to scope clock-in/goals/etc to "me".
     employee = models.ForeignKey(
         'people.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='user_accounts'
     )
+    # Only ever set for Department Head profiles — scopes their read/write
+    # access to Employee.department == this value. Free-text, matching
+    # Employee.department exactly (no normalized Department model exists).
+    department = models.CharField(max_length=100, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

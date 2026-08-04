@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from core.permissions import owner_scope_id
+
 from .models import (
     BackgroundCheck,
     Candidate,
@@ -50,7 +52,7 @@ class RequisitionSerializer(serializers.ModelSerializer):
 
     def validate_client(self, client):
         request = self.context['request']
-        if client.owner_id != request.user.id:
+        if client.owner_id != owner_scope_id(request):
             raise serializers.ValidationError("That client doesn't belong to you.")
         return client
 
@@ -79,7 +81,7 @@ class CandidateSerializer(serializers.ModelSerializer):
         return initials_for(obj.name)
 
     def _validate_owned(self, value, label):
-        if value is not None and value.owner_id != self.context['request'].user.id:
+        if value is not None and value.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError(f"That {label} doesn't belong to you.")
         return value
 
@@ -135,7 +137,7 @@ class OfferLetterSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'sent_at', 'signed_at', 'created_at', 'updated_at']
 
     def validate_candidate(self, candidate):
-        if candidate.owner_id != self.context['request'].user.id:
+        if candidate.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That candidate doesn't belong to you.")
         return candidate
 
@@ -152,7 +154,7 @@ class BackgroundCheckSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_candidate(self, candidate):
-        if candidate.owner_id != self.context['request'].user.id:
+        if candidate.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That candidate doesn't belong to you.")
         return candidate
 
@@ -164,7 +166,7 @@ class OnboardingTaskSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_onboarding(self, onboarding):
-        if onboarding.owner_id != self.context['request'].user.id:
+        if onboarding.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That onboarding record doesn't belong to you.")
         return onboarding
 
@@ -190,7 +192,7 @@ class OnboardingSerializer(serializers.ModelSerializer):
         return round(done / total * 100)
 
     def validate_candidate(self, candidate):
-        if candidate.owner_id != self.context['request'].user.id:
+        if candidate.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That candidate doesn't belong to you.")
         return candidate
 
@@ -202,7 +204,7 @@ class OffboardingTaskSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_offboarding(self, offboarding):
-        if offboarding.owner_id != self.context['request'].user.id:
+        if offboarding.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That offboarding record doesn't belong to you.")
         return offboarding
 
@@ -228,6 +230,6 @@ class OffboardingSerializer(serializers.ModelSerializer):
         return round(done / total * 100)
 
     def validate_candidate(self, candidate):
-        if candidate.owner_id != self.context['request'].user.id:
+        if candidate.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That candidate doesn't belong to you.")
         return candidate

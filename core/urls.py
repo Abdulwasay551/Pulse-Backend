@@ -13,7 +13,15 @@ from .auth_views import (
 )
 from .demo_views import DemoRequestCreateView
 from .hr_views import EmployeeAccountCreateView, EmployeeInviteView, InviteDetailView
-from .my_views import ClockInView, ClockOutView, MyDashboardView
+from .my_views import (
+    ClockInView,
+    ClockOutView,
+    MyBenefitClaimsView,
+    MyDashboardView,
+    MyOnboardingChecklistView,
+    MySupportTicketsView,
+    MyTalentView,
+)
 from .views import AnnouncementViewSet
 
 router = DefaultRouter()
@@ -37,5 +45,9 @@ urlpatterns = [
     path('my/dashboard/', MyDashboardView.as_view(), name='my-dashboard'),
     path('my/clock-in/', ClockInView.as_view(), name='my-clock-in'),
     path('my/clock-out/', ClockOutView.as_view(), name='my-clock-out'),
+    path('my/onboarding-checklist/', MyOnboardingChecklistView.as_view(), name='my-onboarding-checklist'),
+    path('my/talent/', MyTalentView.as_view(), name='my-talent'),
+    path('my/benefit-claims/', MyBenefitClaimsView.as_view(), name='my-benefit-claims'),
+    path('my/support-tickets/', MySupportTicketsView.as_view(), name='my-support-tickets'),
     path('', include(router.urls)),
 ]

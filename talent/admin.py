@@ -1,7 +1,16 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from .models import Appraisal, CareerPath, CompetencyRating, Course, Enrollment, Goal, SuccessionPlan
+from .models import (
+    Appraisal,
+    CareerPath,
+    CompetencyRating,
+    Course,
+    Enrollment,
+    Goal,
+    RecruiterFeedback,
+    SuccessionPlan,
+)
 
 
 @admin.register(Goal)
@@ -42,3 +51,8 @@ class CareerPathAdmin(ModelAdmin):
 class SuccessionPlanAdmin(ModelAdmin):
     list_display = ['employee', 'potential_rating', 'performance_rating', 'ready_now', 'owner']
     list_filter = ['potential_rating', 'performance_rating', 'ready_now']
+
+
+@admin.register(RecruiterFeedback)
+class RecruiterFeedbackAdmin(ModelAdmin):
+    list_display = ['employee', 'given_by', 'created_at', 'owner']

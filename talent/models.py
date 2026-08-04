@@ -163,3 +163,21 @@ class SuccessionPlan(models.Model):
 
     def __str__(self):
         return f'{self.employee.name}: {self.potential_rating} potential / {self.performance_rating} performance'
+
+
+class RecruiterFeedback(models.Model):
+    """Recruiter → HR feedback notes on a placed/hired employee — mirrors
+    people.Recognition's free-text "who said this" pattern (given_by is a
+    plain string, not a FK back to the submitting login)."""
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='recruiter_feedback')
+    employee = models.ForeignKey('people.Employee', on_delete=models.CASCADE, related_name='recruiter_feedback')
+    given_by = models.CharField(max_length=150, blank=True)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'Feedback for {self.employee.name}'

@@ -1,7 +1,30 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from unfold.admin import ModelAdmin, StackedInline
 
 from .models import ActivityLog, DemoRequest, EmployeeInvite, Organization, UserProfile
+
+User = get_user_model()
+
+
+class UserProfileInline(StackedInline):
+    """Lets a superuser (Admin) pick a role/organization/department for a
+    new login on the same screen as creating the User itself — otherwise
+    provisioning IT Manager/Finance Admin accounts is a two-page process
+    (create the User, then separately create its UserProfile)."""
+
+    model = UserProfile
+    extra = 0
+    fk_name = 'user'
+
+
+admin.site.unregister(User)
+
+
+@admin.register(User)
+class UserAdmin(DjangoUserAdmin, ModelAdmin):
+    inlines = [UserProfileInline]
 
 
 @admin.register(Organization)
@@ -12,8 +35,8 @@ class OrganizationAdmin(ModelAdmin):
 
 @admin.register(UserProfile)
 class UserProfileAdmin(ModelAdmin):
-    list_display = ['user', 'role', 'organization', 'employee']
-    list_filter = ['role']
+    list_display = ['user', 'role', 'organization', 'department', 'employee']
+    list_filter = ['role', 'department']
     search_fields = ['user__username', 'user__email']
 
 

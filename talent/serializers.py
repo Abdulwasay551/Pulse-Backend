@@ -1,8 +1,18 @@
 from rest_framework import serializers
 
+from core.permissions import owner_scope_id
 from people.serializers import EmployeeLiteSerializer
 
-from .models import Appraisal, CareerPath, CompetencyRating, Course, Enrollment, Goal, SuccessionPlan
+from .models import (
+    Appraisal,
+    CareerPath,
+    CompetencyRating,
+    Course,
+    Enrollment,
+    Goal,
+    RecruiterFeedback,
+    SuccessionPlan,
+)
 
 
 def _validate_owned_employee(employee, user_id):
@@ -23,7 +33,7 @@ class GoalSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class AppraisalSerializer(serializers.ModelSerializer):
@@ -38,7 +48,7 @@ class AppraisalSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class CompetencyRatingSerializer(serializers.ModelSerializer):
@@ -50,7 +60,7 @@ class CompetencyRatingSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class CourseSerializer(serializers.ModelSerializer):
@@ -78,10 +88,10 @@ class EnrollmentSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
     def validate_course(self, course):
-        if course.owner_id != self.context['request'].user.id:
+        if course.owner_id != owner_scope_id(self.context['request']):
             raise serializers.ValidationError("That course doesn't belong to you.")
         return course
 
@@ -98,7 +108,19 @@ class CareerPathSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
+
+
+class RecruiterFeedbackSerializer(serializers.ModelSerializer):
+    employee_detail = EmployeeLiteSerializer(source='employee', read_only=True)
+
+    class Meta:
+        model = RecruiterFeedback
+        fields = ['id', 'employee', 'employee_detail', 'given_by', 'message', 'created_at']
+        read_only_fields = ['id', 'created_at']
+
+    def validate_employee(self, employee):
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
 
 
 class SuccessionPlanSerializer(serializers.ModelSerializer):
@@ -113,4 +135,4 @@ class SuccessionPlanSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate_employee(self, employee):
-        return _validate_owned_employee(employee, self.context['request'].user.id)
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))

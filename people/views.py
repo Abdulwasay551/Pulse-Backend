@@ -2,6 +2,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -9,7 +10,15 @@ from rest_framework.views import APIView
 
 from core.activity import log_activity
 from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
-from core.permissions import IsHR, IsOwner
+from core.permissions import (
+    IsDepartmentHeadCreateOnly,
+    IsFinanceAdminReadOnly,
+    IsDepartmentHeadReadOnly,
+    IsHR,
+    IsOwner,
+    _role_is,
+    owner_scope_id,
+)
 
 from .models import (
     AttendanceRecord,
@@ -50,14 +59,17 @@ EMPLOYEE_REQUIRED_FIELDS = ['name']
 class EmployeeViewSet(viewsets.ModelViewSet):
     queryset = Employee.objects.select_related('manager').prefetch_related('documents').all()
     serializer_class = EmployeeSerializer
-    permission_classes = [IsAuthenticated, IsOwner]
+    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(department=self.request.user.profile.department)
+        return qs
 
     def perform_create(self, serializer):
-        employee = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'{employee.name} added to the employee database', 'neutral')
+        employee = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'{employee.name} added to the employee database', 'neutral')
 
     @action(detail=False, methods=['get'])
     def export(self, request):
@@ -124,11 +136,11 @@ class EmployeeViewSet(viewsets.ModelViewSet):
                 errors.append(f'Row {i}: {first_field} — {first_errors[0]}')
                 continue
 
-            serializer.save(owner=request.user)
+            serializer.save(owner_id=owner_scope_id(request))
             created += 1
 
         if created:
-            log_activity(request.user, f'Imported {created} employee{"s" if created != 1 else ""} from CSV', 'neutral')
+            log_activity(owner_scope_id(request), f'Imported {created} employee{"s" if created != 1 else ""} from CSV', 'neutral')
 
         return Response({'created': created, 'errors': errors})
 
@@ -145,7 +157,7 @@ class EmployeeDocumentViewSet(viewsets.ModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return self.queryset.filter(employee__owner=self.request.user)
+        return self.queryset.filter(employee__owner_id=owner_scope_id(self.request))
 
 
 class EmployeePortalView(APIView):
@@ -161,39 +173,87 @@ class EmployeePortalView(APIView):
 
 
 class OwnedByEmployeeViewSet(viewsets.ModelViewSet):
-    """Shared base for the Attendance Management resources (AttendanceRecord,
-    Shift, LeaveRequest) — each has its own `owner` field (unlike
-    EmployeeDocument), so plain IsOwner + owner-filtered queryset works."""
+    """Shared base for the Attendance Management resources with a plain
+    owner-only access story (Shift) — each has its own `owner` field
+    (unlike EmployeeDocument), so plain IsOwner + owner-filtered queryset
+    works. AttendanceRecord/LeaveRequest have their own narrower-role
+    wiring below and no longer use this base."""
 
     permission_classes = [IsAuthenticated, IsOwner]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        return self.queryset.filter(owner_id=owner_scope_id(self.request))
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class AttendanceRecordViewSet(OwnedByEmployeeViewSet):
+class AttendanceRecordViewSet(viewsets.ModelViewSet):
+    """Finance Admin gets a narrow read-only slice (to inform payroll/
+    overtime calculations); Department Head gets read-only scoped to their
+    own department; HR/Admin keep full CRUD."""
+
     queryset = AttendanceRecord.objects.select_related('employee').all()
     serializer_class = AttendanceRecordSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdminReadOnly | IsDepartmentHeadReadOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class ShiftViewSet(OwnedByEmployeeViewSet):
+class ShiftViewSet(viewsets.ModelViewSet):
+    """Department Head gets read-only access scoped to their own department
+    on top of HR/Admin's full CRUD."""
+
     queryset = Shift.objects.select_related('employee').all()
     serializer_class = ShiftSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class LeaveRequestViewSet(OwnedByEmployeeViewSet):
+class LeaveRequestViewSet(viewsets.ModelViewSet):
+    """Department Head may create/list/retrieve a leave request for their
+    own department's employees — never update/delete; that absence of an
+    update right is the approval gate (only HR/Admin decide Approved/
+    Rejected)."""
+
     queryset = LeaveRequest.objects.select_related('employee').all()
     serializer_class = LeaveRequestSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadCreateOnly]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
+
+    def perform_create(self, serializer):
+        if _role_is(self.request, 'Department Head'):
+            employee = serializer.validated_data['employee']
+            if employee.department != self.request.user.profile.department:
+                raise PermissionDenied("That employee isn't in your department.")
+        serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
         leave = serializer.save()
         if leave.status != previous_status and leave.status in ('Approved', 'Rejected'):
             tone = 'primary' if leave.status == 'Approved' else 'maroon'
-            log_activity(self.request.user, f'{leave.employee.name}’s {leave.leave_type} leave {leave.status.lower()}', tone)
+            log_activity(owner_scope_id(self.request), f'{leave.employee.name}’s {leave.leave_type} leave {leave.status.lower()}', tone)
 
 
 class SurveyViewSet(viewsets.ModelViewSet):
@@ -202,47 +262,66 @@ class SurveyViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsOwner]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        return self.queryset.filter(owner_id=owner_scope_id(self.request))
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        serializer.save(owner_id=owner_scope_id(self.request))
 
 
 class SurveyResponseViewSet(viewsets.ModelViewSet):
     """No IsOwner — SurveyResponse has no `owner` field of its own, scoped
-    via its parent Survey's owner, same reasoning as EmployeeDocument."""
+    via its parent Survey's owner, same reasoning as EmployeeDocument.
+    Department Head gets read-only access scoped to their own department."""
 
     queryset = SurveyResponse.objects.select_related('employee', 'survey').all()
     serializer_class = SurveyResponseSerializer
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsDepartmentHeadReadOnly]
 
     def get_queryset(self):
-        return self.queryset.filter(survey__owner=self.request.user)
+        qs = self.queryset.filter(survey__owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
 
 
 class RecognitionViewSet(viewsets.ModelViewSet):
     queryset = Recognition.objects.select_related('employee').all()
     serializer_class = RecognitionSerializer
-    permission_classes = [IsAuthenticated, IsOwner]
+    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
 
     def perform_create(self, serializer):
-        recognition = serializer.save(owner=self.request.user)
-        log_activity(self.request.user, f'{recognition.employee.name} recognized: {recognition.message[:60]}', 'primary')
+        recognition = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(owner_scope_id(self.request), f'{recognition.employee.name} recognized: {recognition.message[:60]}', 'primary')
 
 
 class PromotionRequestViewSet(viewsets.ModelViewSet):
+    """Department Head may create/list/retrieve a promotion request for
+    their own department's employees — never update/delete; approval
+    (setting status='Approved', which actually mutates the Employee row
+    below) stays HR/Admin-only."""
+
     queryset = PromotionRequest.objects.select_related('employee').all()
     serializer_class = PromotionRequestSerializer
-    permission_classes = [IsAuthenticated, IsOwner]
+    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadCreateOnly]
 
     def get_queryset(self):
-        return self.queryset.filter(owner=self.request.user)
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Department Head'):
+            qs = qs.filter(employee__department=self.request.user.profile.department)
+        return qs
 
     def perform_create(self, serializer):
-        serializer.save(owner=self.request.user)
+        if _role_is(self.request, 'Department Head'):
+            employee = serializer.validated_data['employee']
+            if employee.department != self.request.user.profile.department:
+                raise PermissionDenied("That employee isn't in your department.")
+        serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
@@ -260,7 +339,7 @@ class PromotionRequestViewSet(viewsets.ModelViewSet):
                 changed = True
             if changed:
                 promo.employee.save(update_fields=['job_title', 'department'])
-            log_activity(self.request.user, f'{promo.employee.name} promoted/transferred to {promo.to_title or promo.to_department}', 'primary')
+            log_activity(owner_scope_id(self.request), f'{promo.employee.name} promoted/transferred to {promo.to_title or promo.to_department}', 'primary')
 
 
 class PeopleDashboardSummaryView(APIView):
@@ -270,7 +349,8 @@ class PeopleDashboardSummaryView(APIView):
     permission_classes = [IsAuthenticated, IsHR]
 
     def get(self, request):
-        employees = Employee.objects.filter(owner=request.user)
+        uid = owner_scope_id(request)
+        employees = Employee.objects.filter(owner_id=uid)
         total = employees.count()
         active = employees.filter(status='Active').count()
         on_leave = employees.filter(status='On Leave').count()
@@ -294,9 +374,9 @@ class PeopleDashboardSummaryView(APIView):
         # there's no month-by-month headcount snapshot stored anywhere.
         attrition_rate = round(terminated / total * 100) if total else 0
 
-        pending_leave = LeaveRequest.objects.filter(owner=request.user, status='Pending').count()
-        pending_promotions = PromotionRequest.objects.filter(owner=request.user, status='Pending').count()
-        open_surveys = Survey.objects.filter(owner=request.user, is_open=True).count()
+        pending_leave = LeaveRequest.objects.filter(owner_id=uid, status='Pending').count()
+        pending_promotions = PromotionRequest.objects.filter(owner_id=uid, status='Pending').count()
+        open_surveys = Survey.objects.filter(owner_id=uid, is_open=True).count()
 
         return Response(
             {
