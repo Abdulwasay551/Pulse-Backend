@@ -14,6 +14,7 @@ from core.activity import log_activity
 from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
 from core.models import ActivityLog
 from core.permissions import (
+    IsDepartmentHeadReadOnly,
     IsDepartmentHeadRequisitionAccess,
     IsHR,
     IsITManagerTaskAccess,
@@ -86,8 +87,14 @@ class OwnedModelViewSet(viewsets.ModelViewSet):
 
 
 class ClientViewSet(OwnedModelViewSet):
+    """Department Head gets read-only access on top of HR/Admin/Recruiter's
+    full access — needed to populate the client picker when they create a
+    Requisition ("request for recruit"), even though they otherwise have no
+    Recruit access at all."""
+
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsRecruiter | IsDepartmentHeadReadOnly]
 
     def perform_create(self, serializer):
         client = serializer.save(owner_id=owner_scope_id(self.request))

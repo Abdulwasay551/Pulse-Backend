@@ -181,10 +181,12 @@ class EmployeeScoreView(APIView):
     spec — see talent/scoring.py. Computed live from the employee's own
     goals + appraisals, nothing stored."""
 
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsDepartmentHeadReadOnly]
 
     def get(self, request, employee_id):
         employee = get_object_or_404(Employee, id=employee_id, owner_id=owner_scope_id(request))
+        if _role_is(request, 'Department Head') and employee.department != request.user.profile.department:
+            raise PermissionDenied("That employee isn't in your department.")
         score, notes = compute_value_score(employee)
         return Response({'employee': employee.id, 'score': score, 'notes': notes})
 
