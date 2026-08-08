@@ -16,6 +16,11 @@ class Employee(models.Model):
         ('On Leave', 'On Leave'),
         ('Terminated', 'Terminated'),
     ]
+    SALARY_TYPE_CHOICES = [
+        ('Hourly', 'Hourly'),
+        ('Salaried', 'Salaried'),
+        ('Contract', 'Contract'),
+    ]
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='employees')
     name = models.CharField(max_length=150)
@@ -23,10 +28,22 @@ class Employee(models.Model):
     phone = models.CharField(max_length=30, blank=True)
     job_title = models.CharField(max_length=150, blank=True)
     department = models.CharField(max_length=100, blank=True)
+    # Free-text, same pattern as `department` — not a FK to recruit.Client,
+    # since not every employee traces back to a specific placed client (some
+    # are added directly, never having gone through a Requisition at all).
+    client_name = models.CharField(max_length=150, blank=True)
+    # "Supervisor" in the Employee Database Details tab — reuses this same
+    # field rather than adding a duplicate concept; it already drives the
+    # Organizational Chart.
     manager = models.ForeignKey(
         'self', on_delete=models.SET_NULL, null=True, blank=True, related_name='direct_reports'
     )
+    salary_type = models.CharField(max_length=20, choices=SALARY_TYPE_CHOICES, blank=True)
+    location = models.CharField(max_length=150, blank=True)
     hire_date = models.DateField(default=date.today)
+    # When this employee converted from probation/temporary to permanent —
+    # nullable, since not every employee has (or needs) this milestone.
+    permanent_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Active')
     # Nullable — most employees imported/added before this field existed have
     # no pay on record yet, and that's shown as "Not set" rather than $0.
@@ -119,9 +136,10 @@ class Shift(models.Model):
 
 
 class LeaveRequest(models.Model):
-    """Leave & Absence Management (EVO-People > Attendance Management) —
-    requests, approvals, balances (balances are derived by counting
-    Approved days, not stored separately)."""
+    """Time Off (EVO-People > Attendance Management) — requests, approvals,
+    balances (balances are derived by counting Approved days, not stored
+    separately). Still named LeaveRequest at the model/table level for
+    schema stability; "Time Off" is the user-facing name."""
 
     TYPE_CHOICES = [
         ('Vacation', 'Vacation'),
@@ -141,6 +159,10 @@ class LeaveRequest(models.Model):
     leave_type = models.CharField(max_length=20, choices=TYPE_CHOICES, default='Vacation')
     start_date = models.DateField()
     end_date = models.DateField()
+    # Nullable — not auto-computed from the date range, since that would
+    # fabricate false precision for partial-day or holiday-adjusted leave;
+    # HR enters the real figure when it's known.
+    hours = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
     reason = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -161,11 +183,20 @@ class Survey(models.Model):
         ('Survey', 'Survey'),
         ('Pulse Check', 'Pulse check'),
     ]
+    FREQUENCY_CHOICES = [
+        ('Yearly', 'Yearly'),
+        ('Bi-yearly', 'Bi-yearly'),
+    ]
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='surveys')
     kind = models.CharField(max_length=20, choices=KIND_CHOICES, default='Survey')
     title = models.CharField(max_length=200)
-    question = models.TextField(help_text='The question employees are asked to respond to.')
+    # A list of question strings — Pulse Checks want 3-5 questions per the
+    # spec (enforced client-side), a plain Survey typically has just one.
+    # Replaces the old single `question` TextField.
+    questions = models.JSONField(default=list, help_text='The question(s) employees are asked to respond to.')
+    # Only meaningful for kind='Pulse Check' — null for a plain Survey.
+    frequency = models.CharField(max_length=20, choices=FREQUENCY_CHOICES, null=True, blank=True)
     is_open = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -192,12 +223,25 @@ class SurveyResponse(models.Model):
 
 class Recognition(models.Model):
     """Recognition Programs (EVO-People > Employee Engagement) — a public
-    kudos/shoutout board."""
+    kudos/shoutout board. Each recognition can generate a PDF certificate
+    (see RecognitionCertificateView) built from recognition_type/employee/
+    given_by — that's the primary, structured field now; message is an
+    optional freeform add-on, not required."""
+
+    TYPE_CHOICES = [
+        ('Employee of the Month', 'Employee of the Month'),
+        ('Work Anniversary', 'Work Anniversary'),
+        ('Above & Beyond', 'Above & Beyond'),
+        ('Team Player', 'Team Player'),
+        ('Innovation Award', 'Innovation Award'),
+        ('Milestone Achievement', 'Milestone Achievement'),
+    ]
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='recognitions')
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='recognitions')
+    recognition_type = models.CharField(max_length=30, choices=TYPE_CHOICES, default='Above & Beyond')
     given_by = models.CharField(max_length=150, blank=True)
-    message = models.TextField()
+    message = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

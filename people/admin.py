@@ -59,7 +59,8 @@ class SurveyAdmin(ModelAdmin):
 
 @admin.register(Recognition)
 class RecognitionAdmin(ModelAdmin):
-    list_display = ['employee', 'given_by', 'created_at', 'owner']
+    list_display = ['employee', 'recognition_type', 'given_by', 'created_at', 'owner']
+    list_filter = ['recognition_type']
 
 
 @admin.register(PromotionRequest)

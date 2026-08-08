@@ -95,6 +95,10 @@ class Candidate(models.Model):
     )
     stage = models.CharField(max_length=20, choices=STAGE_CHOICES, default='Sourced')
     source = models.CharField(max_length=20, choices=SOURCE_CHOICES, default='Sourced')
+    # Nullable — most candidates entered before this field existed (or
+    # sourced via API integrations that don't report pay) have no salary on
+    # record, shown as "Not set" rather than $0.
+    current_salary = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     applied_at = models.DateField(default=date.today)
     # Set automatically the moment stage becomes "Placed" (see save()) — this
     # is what the placements-per-month trend is computed from, independent of
@@ -162,12 +166,13 @@ class OfferLetter(models.Model):
 
 
 class BackgroundCheck(models.Model):
+    # Field name (check_type) is unchanged for schema stability — only the
+    # choices and the user-facing label ("Screening Type") changed.
     CHECK_TYPE_CHOICES = [
-        ('Criminal', 'Criminal'),
-        ('Employment', 'Employment history'),
         ('Education', 'Education'),
-        ('Credit', 'Credit'),
-        ('Reference', 'Reference'),
+        ('Employment', 'Employment'),
+        ('Criminal', 'Criminal'),
+        ('EEC', 'Education + Employment + Criminal (EEC)'),
     ]
     STATUS_CHOICES = [
         ('Pending', 'Pending'),

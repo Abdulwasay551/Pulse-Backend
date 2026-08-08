@@ -179,16 +179,16 @@ class Command(BaseCommand):
         candidates = [
             dict(name='Ava Thompson', role='Senior Backend Engineer', client='Northbridge Talent',
                  requisition='Senior Backend Engineer', stage='Interview', source='LinkedIn', applied_at=d(7, 14),
-                 email='ava.thompson@example.com', phone='+1 555-0142',
+                 email='ava.thompson@example.com', phone='+1 555-0142', current_salary=132000,
                  resume_text='Backend engineer with 6 years of experience building REST APIs in Python and '
                               'Django, deploying on AWS, and working with PostgreSQL. Hands-on React experience '
                               'building internal tooling. Comfortable owning CI/CD pipelines end to end.'),
             dict(name='Marcus Reed', role='Field Sales Rep — West', client='Fernwood Staffing',
                  requisition='Field Sales Rep — West', stage='Interview', source='Referral', applied_at=d(7, 12),
-                 email='marcus.reed@example.com', phone='+1 555-0158'),
+                 email='marcus.reed@example.com', phone='+1 555-0158', current_salary=68000),
             dict(name='Priya Nair', role='DevOps Lead', client='Anchorpoint Search',
                  requisition='DevOps Lead', stage='Offer', source='Job Board', applied_at=d(7, 9),
-                 email='priya.nair@example.com', phone='+1 555-0173',
+                 email='priya.nair@example.com', phone='+1 555-0173', current_salary=155000,
                  resume_text='DevOps lead with deep Kubernetes and Terraform experience across multi-account AWS '
                               'environments. Built CI/CD pipelines and observability/monitoring stacks for teams '
                               'of 40+ engineers.'),
@@ -226,6 +226,7 @@ class Command(BaseCommand):
                 requisition=requisitions[c['requisition']] if c['requisition'] else None,
                 stage=c['stage'],
                 source=c['source'],
+                current_salary=c.get('current_salary'),
                 applied_at=c['applied_at'],
                 placed_at=c.get('placed_at'),
                 resume_text=c.get('resume_text', ''),
@@ -300,27 +301,33 @@ class Command(BaseCommand):
         # all show something real out of the box.
         cto = Employee.objects.create(
             owner=user, name='Marcus Webb', email='marcus.webb@evohr.demo', job_title='CTO',
-            department='Engineering', hire_date=d(1, 12), status='Active', monthly_salary=18000,
+            department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
+            location='Austin, TX', hire_date=d(1, 12), permanent_date=d(4, 12), status='Active', monthly_salary=18000,
         )
         eng_manager = Employee.objects.create(
             owner=user, name='Priya Chandran', email='priya.chandran@evohr.demo', job_title='Engineering Manager',
-            department='Engineering', manager=cto, hire_date=d(3, 4), status='Active', monthly_salary=12500,
+            department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
+            location='Austin, TX', manager=cto, hire_date=d(3, 4), permanent_date=d(6, 4), status='Active', monthly_salary=12500,
         )
         diego = Employee.objects.create(
             owner=user, name='Diego Fernandez', email='diego.fernandez@evohr.demo', job_title='Senior Engineer',
-            department='Engineering', manager=eng_manager, hire_date=d(4, 18), status='Active', monthly_salary=9800,
+            department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
+            location='Remote — Mexico City', manager=eng_manager, hire_date=d(4, 18), permanent_date=d(7, 18), status='Active', monthly_salary=9800,
         )
         sofia = Employee.objects.create(
             owner=user, name='Sofia Marin', email='sofia.marin@evohr.demo', job_title='Engineer',
-            department='Engineering', manager=eng_manager, hire_date=d(6, 2), status='On Leave', monthly_salary=7200,
+            department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
+            location='Remote — Barcelona', manager=eng_manager, hire_date=d(6, 2), status='On Leave', monthly_salary=7200,
         )
         hr_lead = Employee.objects.create(
             owner=user, name='Jordan Ellis', email='jordan.ellis@evohr.demo', job_title='Head of People',
-            department='People Ops', hire_date=d(2, 9), status='Active', monthly_salary=10500,
+            department='People Ops', salary_type='Salaried', location='Austin, TX',
+            hire_date=d(2, 9), permanent_date=d(5, 9), status='Active', monthly_salary=10500,
         )
         tasha = Employee.objects.create(
             owner=user, name='Tasha Reyes', email='tasha.reyes@evohr.demo', job_title='HR Coordinator',
-            department='People Ops', manager=hr_lead, hire_date=d(5, 20), status='Active', monthly_salary=5400,
+            department='People Ops', salary_type='Hourly', location='Austin, TX',
+            manager=hr_lead, hire_date=d(5, 20), status='Active', monthly_salary=5400,
         )
 
         # Demo logins for the 4 newer roles (IT Manager/Finance Admin are
@@ -367,22 +374,27 @@ class Command(BaseCommand):
             Shift.objects.create(owner=user, employee=sofia, date=wk_date, start_time='10:00', end_time='15:00')
         LeaveRequest.objects.create(
             owner=user, employee=sofia, leave_type='Sick', start_date=d(7, 22), end_date=d(7, 29),
-            status='Approved', reason='Recovering from minor surgery.',
+            hours=48, status='Approved', reason='Recovering from minor surgery.',
         )
         LeaveRequest.objects.create(
             owner=user, employee=tasha, leave_type='Vacation', start_date=d(8, 10), end_date=d(8, 14),
-            status='Pending', reason='Family trip.',
+            hours=40, status='Pending', reason='Family trip.',
         )
 
         # Employee Engagement
         pulse = Survey.objects.create(
             owner=user, kind='Pulse Check', title='How was your week?',
-            question='On a scale of 1–5, how manageable was your workload this week?', is_open=True,
+            questions=[
+                'On a scale of 1–5, how manageable was your workload this week?',
+                'Do you feel supported by your manager right now?',
+                'Is there anything blocking your progress this week?',
+            ],
+            frequency='Bi-yearly', is_open=True,
         )
         SurveyResponse.objects.create(survey=pulse, employee=diego, rating=4, response_text='Busy but good.')
         SurveyResponse.objects.create(survey=pulse, employee=eng_manager, rating=3, response_text='A bit stretched with the release.')
         Recognition.objects.create(
-            owner=user, employee=diego, given_by='Priya Chandran',
+            owner=user, employee=diego, recognition_type='Above & Beyond', given_by='Priya Chandran',
             message='Shipped the auth migration a full week ahead of schedule — great work under pressure.',
         )
         PromotionRequest.objects.create(

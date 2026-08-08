@@ -57,8 +57,9 @@ class EmployeeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Employee
         fields = [
-            'id', 'name', 'initials', 'email', 'phone', 'job_title', 'department',
-            'manager', 'manager_name', 'direct_reports_count', 'hire_date', 'status',
+            'id', 'name', 'initials', 'email', 'phone', 'job_title', 'department', 'client_name',
+            'manager', 'manager_name', 'direct_reports_count', 'salary_type', 'location',
+            'hire_date', 'permanent_date', 'status',
             'monthly_salary', 'source_candidate', 'portal_token', 'documents', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'portal_token', 'created_at', 'updated_at']
@@ -138,7 +139,7 @@ class LeaveRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = LeaveRequest
         fields = [
-            'id', 'employee', 'employee_detail', 'leave_type', 'start_date', 'end_date',
+            'id', 'employee', 'employee_detail', 'leave_type', 'start_date', 'end_date', 'hours',
             'status', 'reason', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
@@ -172,7 +173,7 @@ class SurveySerializer(serializers.ModelSerializer):
     class Meta:
         model = Survey
         fields = [
-            'id', 'kind', 'title', 'question', 'is_open', 'responses',
+            'id', 'kind', 'title', 'questions', 'frequency', 'is_open', 'responses',
             'response_count', 'average_rating', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
@@ -190,7 +191,7 @@ class RecognitionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Recognition
-        fields = ['id', 'employee', 'employee_detail', 'given_by', 'message', 'created_at']
+        fields = ['id', 'employee', 'employee_detail', 'recognition_type', 'given_by', 'message', 'created_at']
         read_only_fields = ['id', 'created_at']
 
     def validate_employee(self, employee):

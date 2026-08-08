@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -20,6 +21,7 @@ from core.permissions import (
     owner_scope_id,
 )
 
+from .certificates import render_recognition_certificate
 from .models import (
     AttendanceRecord,
     Employee,
@@ -297,7 +299,16 @@ class RecognitionViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         recognition = serializer.save(owner_id=owner_scope_id(self.request))
-        log_activity(owner_scope_id(self.request), f'{recognition.employee.name} recognized: {recognition.message[:60]}', 'primary')
+        log_activity(owner_scope_id(self.request), f'{recognition.employee.name} recognized: {recognition.recognition_type}', 'primary')
+
+    @action(detail=True, methods=['get'])
+    def certificate(self, request, pk=None):
+        recognition = self.get_object()
+        pdf_bytes = render_recognition_certificate(recognition)
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        filename = f'{recognition.employee.name.replace(" ", "-")}-recognition-certificate.pdf'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
 
 class PromotionRequestViewSet(viewsets.ModelViewSet):

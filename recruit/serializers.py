@@ -66,7 +66,7 @@ class CandidateSerializer(serializers.ModelSerializer):
         model = Candidate
         fields = [
             'id', 'name', 'initials', 'role', 'email', 'phone', 'client', 'client_name',
-            'requisition', 'requisition_title', 'stage', 'source', 'applied_at', 'placed_at',
+            'requisition', 'requisition_title', 'stage', 'source', 'current_salary', 'applied_at', 'placed_at',
             'resume_file', 'resume_text', 'ai_score', 'ai_score_notes', 'portal_token',
             'created_at', 'updated_at',
         ]

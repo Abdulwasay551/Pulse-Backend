@@ -107,6 +107,13 @@ class ClientViewSet(OwnedModelViewSet):
         rows = [[c.name, c.industry, c.contact_name, c.contact_email, c.status] for c in clients]
         return csv_response('clients.csv', header, rows)
 
+    @action(detail=False, methods=['get'], url_path='import/template')
+    def import_template(self, request):
+        """A blank CSV with just the header row, so HR can see the expected
+        columns before uploading a real file — separate from `export`,
+        which dumps actual data."""
+        return csv_response('clients-import-template.csv', list(CLIENT_IMPORT_FIELDS.values()), [])
+
     @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
     def import_preview(self, request):
         return _import_preview(request, CLIENT_IMPORT_FIELDS)
@@ -195,6 +202,10 @@ class CandidateViewSet(OwnedModelViewSet):
             for c in candidates
         ]
         return csv_response('candidates.csv', header, rows)
+
+    @action(detail=False, methods=['get'], url_path='import/template')
+    def import_template(self, request):
+        return csv_response('candidates-import-template.csv', list(CANDIDATE_IMPORT_FIELDS.values()), [])
 
     @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
     def import_preview(self, request):
