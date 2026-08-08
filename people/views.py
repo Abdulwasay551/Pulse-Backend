@@ -1,7 +1,7 @@
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.activity import log_activity
-from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
+from core.csv_io import CsvImportExportMixin, resolve_employee
 from core.permissions import (
     IsDepartmentHeadCreateOnly,
     IsFinanceAdminReadOnly,
@@ -46,22 +46,46 @@ from .serializers import (
     SurveySerializer,
 )
 
-EMPLOYEE_IMPORT_FIELDS = {
-    'name': 'Name',
-    'email': 'Email',
-    'phone': 'Phone',
-    'job_title': 'Job title',
-    'department': 'Department',
-    'hire_date': 'Hire date',
-    'status': 'Status',
-}
-EMPLOYEE_REQUIRED_FIELDS = ['name']
 
-
-class EmployeeViewSet(viewsets.ModelViewSet):
+class EmployeeViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     queryset = Employee.objects.select_related('manager').prefetch_related('documents').all()
     serializer_class = EmployeeSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+
+    csv_filename = 'employees'
+    csv_activity_label = 'employees'
+    csv_import_fields = {
+        'name': 'Name',
+        'email': 'Email',
+        'phone': 'Phone',
+        'job_title': 'Role title',
+        'department': 'Department',
+        'client_name': 'Client name',
+        'salary_type': 'Salary type (Hourly, Salaried, or Contract)',
+        'location': 'Location',
+        'hire_date': 'Hire date (YYYY-MM-DD)',
+        'permanent_date': 'Permanent date (YYYY-MM-DD)',
+        'status': 'Status (Active, On Leave, or Terminated)',
+        'monthly_salary': 'Monthly salary',
+    }
+    csv_required_fields = ['name']
+    csv_export_header = [
+        'Name', 'Email', 'Phone', 'Role title', 'Department', 'Client name', 'Salary type',
+        'Location', 'Hire date', 'Permanent date', 'Status', 'Monthly salary',
+    ]
+    csv_sample_row = [
+        'Taylor Morgan', 'taylor.morgan@example.com', '+1 555-0100', 'Senior Engineer', 'Engineering',
+        'Northbridge Talent', 'Salaried', 'Remote — Austin', '2026-01-15', '', 'Active', '8500',
+    ]
+
+    def get_csv_export_queryset(self):
+        return self.get_queryset().order_by('name')
+
+    def csv_export_row(self, e):
+        return [
+            e.name, e.email, e.phone, e.job_title, e.department, e.client_name, e.salary_type,
+            e.location, e.hire_date, e.permanent_date, e.status, e.monthly_salary,
+        ]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -72,79 +96,6 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         employee = serializer.save(owner_id=owner_scope_id(self.request))
         log_activity(owner_scope_id(self.request), f'{employee.name} added to the employee database', 'neutral')
-
-    @action(detail=False, methods=['get'])
-    def export(self, request):
-        employees = self.get_queryset().order_by('name')
-        header = ['Name', 'Email', 'Phone', 'Job title', 'Department', 'Hire date', 'Status']
-        rows = [
-            [e.name, e.email, e.phone, e.job_title, e.department, e.hire_date, e.status]
-            for e in employees
-        ]
-        return csv_response('employees.csv', header, rows)
-
-    @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
-    def import_preview(self, request):
-        upload = request.FILES.get('file')
-        if not upload:
-            return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            columns, rows = parse_csv_upload(upload)
-        except ValueError as exc:
-            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(
-            {
-                'columns': columns,
-                'rows': rows,
-                'row_count': len(rows),
-                'suggested_mapping': suggest_mapping(columns, EMPLOYEE_IMPORT_FIELDS),
-                'fields': EMPLOYEE_IMPORT_FIELDS,
-            }
-        )
-
-    @action(detail=False, methods=['post'], url_path='import/commit', parser_classes=[JSONParser])
-    def import_commit(self, request):
-        columns = request.data.get('columns')
-        rows = request.data.get('rows')
-        mapping = request.data.get('mapping')
-        if not isinstance(columns, list) or not isinstance(rows, list) or not isinstance(mapping, dict):
-            return Response(
-                {'detail': 'Expected {columns, rows, mapping} from the preview step.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        mapping = {k: v for k, v in mapping.items() if v in EMPLOYEE_IMPORT_FIELDS}
-        mapped_fields = set(mapping.values())
-        missing_required = [f for f in EMPLOYEE_REQUIRED_FIELDS if f not in mapped_fields]
-        if missing_required:
-            return Response(
-                {'detail': f'Map a column to the required field(s): {", ".join(missing_required)}.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        created = 0
-        errors = []
-        for i, row in enumerate(rows, start=2):
-            record = row_to_record(columns, row, mapping)
-            record = {k: v for k, v in record.items() if v != ''}
-            missing = [f for f in EMPLOYEE_REQUIRED_FIELDS if not record.get(f)]
-            if missing:
-                errors.append(f'Row {i}: {", ".join(missing)} is required')
-                continue
-
-            serializer = EmployeeSerializer(data=record, context={'request': request})
-            if not serializer.is_valid():
-                first_field, first_errors = next(iter(serializer.errors.items()))
-                errors.append(f'Row {i}: {first_field} — {first_errors[0]}')
-                continue
-
-            serializer.save(owner_id=owner_scope_id(request))
-            created += 1
-
-        if created:
-            log_activity(owner_scope_id(request), f'Imported {created} employee{"s" if created != 1 else ""} from CSV', 'neutral')
-
-        return Response({'created': created, 'errors': errors})
 
 
 class EmployeeDocumentViewSet(viewsets.ModelViewSet):
@@ -190,7 +141,7 @@ class OwnedByEmployeeViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class AttendanceRecordViewSet(viewsets.ModelViewSet):
+class AttendanceRecordViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Finance Admin gets a narrow read-only slice (to inform payroll/
     overtime calculations); Department Head gets read-only scoped to their
     own department; HR/Admin keep full CRUD."""
@@ -199,6 +150,24 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
     serializer_class = AttendanceRecordSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdminReadOnly | IsDepartmentHeadReadOnly]
 
+    csv_filename = 'attendance-records'
+    csv_activity_label = 'attendance records'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'date': 'Date (YYYY-MM-DD)',
+        'clock_in': 'Clock in (HH:MM)',
+        'clock_out': 'Clock out (HH:MM)',
+        'overtime_hours': 'Overtime (hours)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['employee']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Date', 'Clock in', 'Clock out', 'Overtime (hours)', 'Notes']
+    csv_sample_row = ['Taylor Morgan', '2026-08-01', '09:00', '17:30', '0', '']
+
+    def csv_export_row(self, r):
+        return [r.employee.name, r.date, r.clock_in, r.clock_out, r.overtime_hours, r.notes]
+
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
@@ -209,7 +178,7 @@ class AttendanceRecordViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class ShiftViewSet(viewsets.ModelViewSet):
+class ShiftViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head gets read-only access scoped to their own department
     on top of HR/Admin's full CRUD."""
 
@@ -217,6 +186,23 @@ class ShiftViewSet(viewsets.ModelViewSet):
     serializer_class = ShiftSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
 
+    csv_filename = 'shifts'
+    csv_activity_label = 'shifts'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'date': 'Date (YYYY-MM-DD)',
+        'start_time': 'Start time (HH:MM)',
+        'end_time': 'End time (HH:MM)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['employee', 'start_time', 'end_time']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Date', 'Start time', 'End time', 'Notes']
+    csv_sample_row = ['Taylor Morgan', '2026-08-01', '09:00', '17:00', '']
+
+    def csv_export_row(self, s):
+        return [s.employee.name, s.date, s.start_time, s.end_time, s.notes]
+
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
@@ -227,7 +213,7 @@ class ShiftViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class LeaveRequestViewSet(viewsets.ModelViewSet):
+class LeaveRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head may create/list/retrieve a leave request for their
     own department's employees — never update/delete; that absence of an
     update right is the approval gate (only HR/Admin decide Approved/
@@ -236,6 +222,25 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
     queryset = LeaveRequest.objects.select_related('employee').all()
     serializer_class = LeaveRequestSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadCreateOnly]
+
+    csv_filename = 'time-off'
+    csv_activity_label = 'time off requests'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'leave_type': 'Type (Vacation, Sick, Personal, Unpaid, or Other)',
+        'start_date': 'Start date (YYYY-MM-DD)',
+        'end_date': 'End date (YYYY-MM-DD)',
+        'hours': 'Hours',
+        'status': 'Status (Pending, Approved, or Rejected)',
+        'reason': 'Reason',
+    }
+    csv_required_fields = ['employee', 'start_date', 'end_date']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Type', 'Start date', 'End date', 'Hours', 'Status', 'Reason']
+    csv_sample_row = ['Taylor Morgan', 'Vacation', '2026-09-01', '2026-09-05', '40', 'Pending', 'Family trip']
+
+    def csv_export_row(self, r):
+        return [r.employee.name, r.leave_type, r.start_date, r.end_date, r.hours, r.status, r.reason]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -258,10 +263,37 @@ class LeaveRequestViewSet(viewsets.ModelViewSet):
             log_activity(owner_scope_id(self.request), f'{leave.employee.name}’s {leave.leave_type} leave {leave.status.lower()}', tone)
 
 
-class SurveyViewSet(viewsets.ModelViewSet):
+def _parse_questions(owner_id, raw_value):
+    """Splits a pipe-separated CSV cell into the `questions` list field —
+    e.g. "How was your week? | Any blockers?" — since a JSON list has no
+    single natural spreadsheet-cell representation."""
+    questions = [q.strip() for q in raw_value.split('|') if q.strip()]
+    if not questions:
+        return None, 'at least one question is required'
+    return questions, None
+
+
+class SurveyViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     queryset = Survey.objects.prefetch_related('responses__employee').all()
     serializer_class = SurveySerializer
     permission_classes = [IsAuthenticated, IsOwner]
+
+    csv_filename = 'surveys'
+    csv_activity_label = 'surveys'
+    csv_import_fields = {
+        'kind': 'Kind (Survey or Pulse Check)',
+        'title': 'Title',
+        'questions': 'Questions (separate multiple with a pipe: |)',
+        'frequency': 'Frequency (Yearly or Bi-yearly — Pulse Check only)',
+        'is_open': 'Open (True or False)',
+    }
+    csv_required_fields = ['title', 'questions']
+    csv_field_parsers = {'questions': _parse_questions}
+    csv_export_header = ['Kind', 'Title', 'Questions', 'Frequency', 'Open', 'Responses']
+    csv_sample_row = ['Pulse Check', 'How was your week?', 'How manageable was your workload? | Do you feel supported?', 'Bi-yearly', 'True']
+
+    def csv_export_row(self, s):
+        return [s.kind, s.title, ' | '.join(s.questions), s.frequency, s.is_open, s.responses.count()]
 
     def get_queryset(self):
         return self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -286,10 +318,29 @@ class SurveyResponseViewSet(viewsets.ModelViewSet):
         return qs
 
 
-class RecognitionViewSet(viewsets.ModelViewSet):
+class RecognitionViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     queryset = Recognition.objects.select_related('employee').all()
     serializer_class = RecognitionSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+
+    csv_filename = 'recognitions'
+    csv_activity_label = 'recognitions'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'recognition_type': (
+            'Recognition type (Employee of the Month, Work Anniversary, Above & Beyond, '
+            'Team Player, Innovation Award, or Milestone Achievement)'
+        ),
+        'given_by': 'Given by',
+        'message': 'Message',
+    }
+    csv_required_fields = ['employee']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Recognition type', 'Given by', 'Message', 'Date']
+    csv_sample_row = ['Taylor Morgan', 'Above & Beyond', 'Jordan Ellis', 'Shipped the migration ahead of schedule.']
+
+    def csv_export_row(self, r):
+        return [r.employee.name, r.recognition_type, r.given_by, r.message, r.created_at]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -311,7 +362,7 @@ class RecognitionViewSet(viewsets.ModelViewSet):
         return response
 
 
-class PromotionRequestViewSet(viewsets.ModelViewSet):
+class PromotionRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head may create/list/retrieve a promotion request for
     their own department's employees — never update/delete; approval
     (setting status='Approved', which actually mutates the Employee row
@@ -320,6 +371,31 @@ class PromotionRequestViewSet(viewsets.ModelViewSet):
     queryset = PromotionRequest.objects.select_related('employee').all()
     serializer_class = PromotionRequestSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadCreateOnly]
+
+    csv_filename = 'promotion-requests'
+    csv_activity_label = 'promotion requests'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'from_title': 'From title',
+        'to_title': 'To title',
+        'from_department': 'From department',
+        'to_department': 'To department',
+        'effective_date': 'Effective date (YYYY-MM-DD)',
+        'status': 'Status (Pending, Approved, or Rejected)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['employee']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = [
+        'Employee', 'From title', 'To title', 'From department', 'To department', 'Effective date', 'Status', 'Notes',
+    ]
+    csv_sample_row = ['Taylor Morgan', 'Engineer', 'Senior Engineer', 'Engineering', 'Engineering', '2026-10-01', 'Pending', '']
+
+    def csv_export_row(self, p):
+        return [
+            p.employee.name, p.from_title, p.to_title, p.from_department, p.to_department,
+            p.effective_date, p.status, p.notes,
+        ]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))

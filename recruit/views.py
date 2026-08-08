@@ -3,15 +3,14 @@ from datetime import timedelta
 from django.db.models import Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.activity import log_activity
-from core.csv_io import csv_response, parse_csv_upload, row_to_record, suggest_mapping
+from core.csv_io import CsvImportExportMixin, resolve_related
 from core.models import ActivityLog
 from core.permissions import (
     IsDepartmentHeadReadOnly,
@@ -50,25 +49,12 @@ from .serializers import (
     RequisitionSerializer,
 )
 
-CLIENT_IMPORT_FIELDS = {
-    'name': 'Name',
-    'industry': 'Industry',
-    'contact_name': 'Contact name',
-    'contact_email': 'Contact email',
-    'status': 'Status',
-}
-CLIENT_REQUIRED_FIELDS = ['name']
+def _resolve_client(owner_id, raw_value):
+    return resolve_related(Client, owner_id, raw_value, match_fields=['name'], label='Client')
 
-CANDIDATE_IMPORT_FIELDS = {
-    'name': 'Name',
-    'role': 'Role',
-    'email': 'Email',
-    'phone': 'Phone',
-    'stage': 'Stage',
-    'source': 'Source',
-    'applied_at': 'Applied at',
-}
-CANDIDATE_REQUIRED_FIELDS = ['name', 'role']
+
+def _resolve_candidate(owner_id, raw_value):
+    return resolve_related(Candidate, owner_id, raw_value, match_fields=['email', 'name'], label='Candidate')
 
 
 class OwnedModelViewSet(viewsets.ModelViewSet):
@@ -86,7 +72,7 @@ class OwnedModelViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class ClientViewSet(OwnedModelViewSet):
+class ClientViewSet(CsvImportExportMixin, OwnedModelViewSet):
     """Department Head gets read-only access on top of HR/Admin/Recruiter's
     full access — needed to populate the client picker when they create a
     Requisition ("request for recruit"), even though they otherwise have no
@@ -96,42 +82,31 @@ class ClientViewSet(OwnedModelViewSet):
     serializer_class = ClientSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsRecruiter | IsDepartmentHeadReadOnly]
 
+    csv_filename = 'clients'
+    csv_activity_label = 'clients'
+    csv_import_fields = {
+        'name': 'Name',
+        'industry': 'Industry',
+        'contact_name': 'Contact name',
+        'contact_email': 'Contact email',
+        'status': 'Status (Active, Prospect, or At risk)',
+    }
+    csv_required_fields = ['name']
+    csv_export_header = ['Name', 'Industry', 'Contact name', 'Contact email', 'Status']
+    csv_sample_row = ['Acme Corp', 'Manufacturing', 'Jordan Lee', 'jordan@acme.com', 'Active']
+
+    def get_csv_export_queryset(self):
+        return self.get_queryset().order_by('name')
+
+    def csv_export_row(self, c):
+        return [c.name, c.industry, c.contact_name, c.contact_email, c.status]
+
     def perform_create(self, serializer):
         client = serializer.save(owner_id=owner_scope_id(self.request))
         log_activity(owner_scope_id(self.request), f'New client added: {client.name}', 'neutral')
 
-    @action(detail=False, methods=['get'])
-    def export(self, request):
-        clients = self.get_queryset().order_by('name')
-        header = ['Name', 'Industry', 'Contact name', 'Contact email', 'Status']
-        rows = [[c.name, c.industry, c.contact_name, c.contact_email, c.status] for c in clients]
-        return csv_response('clients.csv', header, rows)
 
-    @action(detail=False, methods=['get'], url_path='import/template')
-    def import_template(self, request):
-        """A blank CSV with just the header row, so HR can see the expected
-        columns before uploading a real file — separate from `export`,
-        which dumps actual data."""
-        return csv_response('clients-import-template.csv', list(CLIENT_IMPORT_FIELDS.values()), [])
-
-    @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
-    def import_preview(self, request):
-        return _import_preview(request, CLIENT_IMPORT_FIELDS)
-
-    @action(detail=False, methods=['post'], url_path='import/commit', parser_classes=[JSONParser])
-    def import_commit(self, request):
-        return _import_commit(
-            request,
-            serializer_class=ClientSerializer,
-            required_fields=CLIENT_REQUIRED_FIELDS,
-            valid_fields=set(CLIENT_IMPORT_FIELDS),
-            on_created=lambda user, count: log_activity(
-                user, f'Imported {count} client{"s" if count != 1 else ""} from CSV', 'neutral'
-            ),
-        )
-
-
-class RequisitionViewSet(OwnedModelViewSet):
+class RequisitionViewSet(CsvImportExportMixin, OwnedModelViewSet):
     """Department Head may also view every requisition and create new ones
     ("request for recruit") on top of HR/Admin/Recruiter's full access —
     never update/delete an existing one."""
@@ -139,6 +114,24 @@ class RequisitionViewSet(OwnedModelViewSet):
     queryset = Requisition.objects.select_related('client').all()
     serializer_class = RequisitionSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsRecruiter | IsDepartmentHeadRequisitionAccess]
+
+    csv_filename = 'job-openings'
+    csv_activity_label = 'job openings'
+    csv_import_fields = {
+        'client': 'Client (exact name)',
+        'title': 'Role title',
+        'recruiter': 'Recruiter',
+        'priority': 'Priority (High, Medium, or Low)',
+        'status': 'Status (Open, Interviewing, Offer stage, On hold, or Filled)',
+        'requirements': 'Requirements',
+    }
+    csv_required_fields = ['client', 'title']
+    csv_field_parsers = {'client': _resolve_client}
+    csv_export_header = ['Client', 'Role title', 'Recruiter', 'Priority', 'Status', 'Posted', 'Candidates']
+    csv_sample_row = ['Acme Corp', 'Senior QA Engineer', 'Alex Rivera', 'High', 'Open', 'Python, React, 3+ years experience']
+
+    def csv_export_row(self, r):
+        return [r.client.name, r.title, r.recruiter, r.priority, r.status, r.posted_at, r.candidates.count()]
 
     def perform_create(self, serializer):
         requisition = serializer.save(owner_id=owner_scope_id(self.request))
@@ -149,9 +142,31 @@ class RequisitionViewSet(OwnedModelViewSet):
         )
 
 
-class CandidateViewSet(OwnedModelViewSet):
+class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
     queryset = Candidate.objects.select_related('client', 'requisition').all()
     serializer_class = CandidateSerializer
+
+    csv_filename = 'candidates'
+    csv_activity_label = 'candidates'
+    csv_import_fields = {
+        'name': 'Name',
+        'role': 'Current position',
+        'email': 'Email',
+        'phone': 'Phone',
+        'stage': 'Stage (Sourced, Interview, Offer, Placed, or Rejected)',
+        'source': 'Source (LinkedIn, Referral, Job Board, Sourced, or Other)',
+        'current_salary': 'Current salary',
+        'applied_at': 'Applied at (YYYY-MM-DD)',
+    }
+    csv_required_fields = ['name', 'role']
+    csv_export_header = ['Name', 'Role', 'Email', 'Phone', 'Stage', 'Source', 'Applied at', 'AI score']
+    csv_sample_row = ['Jamie Chen', 'QA Engineer', 'jamie.chen@example.com', '+1 555-0100', 'Sourced', 'LinkedIn', '75000', '2026-08-01']
+
+    def get_csv_export_queryset(self):
+        return self.get_queryset().order_by('name')
+
+    def csv_export_row(self, c):
+        return [c.name, c.role, c.email, c.phone, c.stage, c.source, c.applied_at, c.ai_score]
 
     def perform_create(self, serializer):
         candidate = serializer.save(owner_id=owner_scope_id(self.request))
@@ -193,36 +208,6 @@ class CandidateViewSet(OwnedModelViewSet):
         candidate.save(update_fields=['ai_score', 'ai_score_notes', 'updated_at'])
         return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
-    @action(detail=False, methods=['get'])
-    def export(self, request):
-        candidates = self.get_queryset().order_by('name')
-        header = ['Name', 'Role', 'Email', 'Phone', 'Stage', 'Source', 'Applied at', 'AI score']
-        rows = [
-            [c.name, c.role, c.email, c.phone, c.stage, c.source, c.applied_at, c.ai_score]
-            for c in candidates
-        ]
-        return csv_response('candidates.csv', header, rows)
-
-    @action(detail=False, methods=['get'], url_path='import/template')
-    def import_template(self, request):
-        return csv_response('candidates-import-template.csv', list(CANDIDATE_IMPORT_FIELDS.values()), [])
-
-    @action(detail=False, methods=['post'], url_path='import/preview', parser_classes=[MultiPartParser, FormParser])
-    def import_preview(self, request):
-        return _import_preview(request, CANDIDATE_IMPORT_FIELDS)
-
-    @action(detail=False, methods=['post'], url_path='import/commit', parser_classes=[JSONParser])
-    def import_commit(self, request):
-        return _import_commit(
-            request,
-            serializer_class=CandidateSerializer,
-            required_fields=CANDIDATE_REQUIRED_FIELDS,
-            valid_fields=set(CANDIDATE_IMPORT_FIELDS),
-            on_created=lambda user, count: log_activity(
-                user, f'Imported {count} candidate{"s" if count != 1 else ""} from CSV', 'neutral'
-            ),
-        )
-
 
 class CandidatePortalView(APIView):
     """The public, no-login status page a candidate sees at their own
@@ -238,9 +223,30 @@ class CandidatePortalView(APIView):
         return Response(CandidatePortalSerializer(candidate).data)
 
 
-class OfferLetterViewSet(OwnedModelViewSet):
+class OfferLetterViewSet(CsvImportExportMixin, OwnedModelViewSet):
     queryset = OfferLetter.objects.select_related('candidate').all()
     serializer_class = OfferLetterSerializer
+
+    csv_filename = 'offer-letters'
+    csv_activity_label = 'offer letters'
+    csv_import_fields = {
+        'candidate': 'Candidate (name or email)',
+        'job_title': 'Job title',
+        'salary': 'Salary',
+        'start_date': 'Start date (YYYY-MM-DD)',
+        'body': 'Letter body',
+        'status': 'Status (Draft, Sent, Signed, or Declined)',
+    }
+    csv_required_fields = ['candidate', 'job_title', 'body']
+    csv_field_parsers = {'candidate': _resolve_candidate}
+    csv_export_header = ['Candidate', 'Job title', 'Salary', 'Start date', 'Status', 'Sent at', 'Signed at']
+    csv_sample_row = [
+        'Jamie Chen', 'QA Engineer', '75000', '2026-09-01',
+        'We are pleased to offer you the QA Engineer position at Acme Corp...', 'Draft',
+    ]
+
+    def csv_export_row(self, o):
+        return [o.candidate.name, o.job_title, o.salary, o.start_date, o.status, o.sent_at, o.signed_at]
 
     def perform_create(self, serializer):
         offer = serializer.save(owner_id=owner_scope_id(self.request))
@@ -263,9 +269,25 @@ class OfferLetterViewSet(OwnedModelViewSet):
                 log_activity(uid, f'{offer.candidate.name} declined their offer letter', 'maroon')
 
 
-class BackgroundCheckViewSet(OwnedModelViewSet):
+class BackgroundCheckViewSet(CsvImportExportMixin, OwnedModelViewSet):
     queryset = BackgroundCheck.objects.select_related('candidate').all()
     serializer_class = BackgroundCheckSerializer
+
+    csv_filename = 'background-checks'
+    csv_activity_label = 'background checks'
+    csv_import_fields = {
+        'candidate': 'Candidate (name or email)',
+        'check_type': 'Screening type (Education, Employment, Criminal, or EEC)',
+        'status': 'Status (Pending, In Progress, Cleared, or Flagged)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['candidate', 'check_type']
+    csv_field_parsers = {'candidate': _resolve_candidate}
+    csv_export_header = ['Candidate', 'Screening type', 'Status', 'Initiated', 'Completed', 'Notes']
+    csv_sample_row = ['Jamie Chen', 'Education', 'Pending', '']
+
+    def csv_export_row(self, b):
+        return [b.candidate.name, b.get_check_type_display(), b.status, b.initiated_at, b.completed_at, b.notes]
 
     def perform_create(self, serializer):
         check = serializer.save(owner_id=owner_scope_id(self.request), initiated_at=timezone.now())
@@ -334,74 +356,6 @@ class OffboardingTaskViewSet(viewsets.ModelViewSet):
         if _role_is(self.request, 'IT Manager'):
             qs = qs.filter(category='Hardware Clearance')
         return qs
-
-
-def _import_preview(request, field_labels):
-    upload = request.FILES.get('file')
-    if not upload:
-        return Response({'detail': 'No file uploaded.'}, status=status.HTTP_400_BAD_REQUEST)
-    try:
-        columns, rows = parse_csv_upload(upload)
-    except ValueError as exc:
-        return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-
-    return Response(
-        {
-            'columns': columns,
-            'rows': rows,
-            'row_count': len(rows),
-            'suggested_mapping': suggest_mapping(columns, field_labels),
-            'fields': field_labels,
-        }
-    )
-
-
-def _import_commit(request, *, serializer_class, required_fields, valid_fields, on_created):
-    columns = request.data.get('columns')
-    rows = request.data.get('rows')
-    mapping = request.data.get('mapping')
-    if not isinstance(columns, list) or not isinstance(rows, list) or not isinstance(mapping, dict):
-        return Response(
-            {'detail': 'Expected {columns, rows, mapping} from the preview step.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    mapping = {k: v for k, v in mapping.items() if v in valid_fields}
-    mapped_fields = set(mapping.values())
-    missing_required = [f for f in required_fields if f not in mapped_fields]
-    if missing_required:
-        return Response(
-            {'detail': f'Map a column to the required field(s): {", ".join(missing_required)}.'},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    created = 0
-    errors = []
-    for i, row in enumerate(rows, start=2):  # row 1 is the header
-        record = row_to_record(columns, row, mapping)
-        # Blank optional cells shouldn't override a model default (e.g. an
-        # empty "Applied at" column should still fall back to today, not
-        # fail validation as an empty date string) — only pass through
-        # values that were actually provided.
-        record = {k: v for k, v in record.items() if v != ''}
-        missing = [f for f in required_fields if not record.get(f)]
-        if missing:
-            errors.append(f'Row {i}: {", ".join(missing)} is required')
-            continue
-
-        serializer = serializer_class(data=record, context={'request': request})
-        if not serializer.is_valid():
-            first_field, first_errors = next(iter(serializer.errors.items()))
-            errors.append(f'Row {i}: {first_field} — {first_errors[0]}')
-            continue
-
-        serializer.save(owner_id=owner_scope_id(request))
-        created += 1
-
-    if created:
-        on_created(owner_scope_id(request), created)
-
-    return Response({'created': created, 'errors': errors})
 
 
 def _add_months(d, months):

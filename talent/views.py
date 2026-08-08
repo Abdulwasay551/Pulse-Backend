@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.csv_io import CsvImportExportMixin, resolve_employee
 from core.permissions import (
     IsDepartmentHeadAppraisalAccess,
     IsDepartmentHeadReadOnly,
@@ -74,12 +75,30 @@ class DepartmentScopedTalentViewSet(OwnedTalentViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class GoalViewSet(DepartmentScopedTalentViewSet):
+class GoalViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     queryset = Goal.objects.select_related('employee').all()
     serializer_class = GoalSerializer
 
+    csv_filename = 'goals'
+    csv_activity_label = 'goals'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'title': 'Goal title',
+        'description': 'Description',
+        'target_date': 'Target date (YYYY-MM-DD)',
+        'status': 'Status (Not Started, In Progress, or Completed)',
+        'progress': 'Progress (0-100)',
+    }
+    csv_required_fields = ['employee', 'title']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Title', 'Description', 'Target date', 'Status', 'Progress']
+    csv_sample_row = ['Taylor Morgan', 'Ship the Q3 roadmap', 'Deliver the three headline features.', '2026-09-30', 'In Progress', '40']
 
-class AppraisalViewSet(OwnedTalentViewSet):
+    def csv_export_row(self, g):
+        return [g.employee.name, g.title, g.description, g.target_date, g.status, g.progress]
+
+
+class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
     """Department Head may create/update while drafting/submitting an
     appraisal for their own department's employees, but perform_update
     below blocks them from ever finalizing one — that stays HR/Admin-only,
@@ -88,6 +107,28 @@ class AppraisalViewSet(OwnedTalentViewSet):
     queryset = Appraisal.objects.select_related('employee').all()
     serializer_class = AppraisalSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadAppraisalAccess]
+
+    csv_filename = 'appraisals'
+    csv_activity_label = 'appraisals'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'period': 'Period (e.g. "2026 Annual Review")',
+        'reviewer': 'Reviewer',
+        'overall_rating': 'Overall rating (1-5)',
+        'strengths': 'Strengths',
+        'areas_for_improvement': 'Areas for improvement',
+        'status': 'Status (Draft, Submitted, or Finalized)',
+    }
+    csv_required_fields = ['employee', 'period', 'overall_rating']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Period', 'Reviewer', 'Overall rating', 'Status']
+    csv_sample_row = [
+        'Taylor Morgan', '2026 Annual Review', 'Jordan Ellis', '4',
+        'Strong technical execution and mentorship.', 'Room to delegate more.', 'Draft',
+    ]
+
+    def csv_export_row(self, a):
+        return [a.employee.name, a.period, a.reviewer, a.overall_rating, a.status]
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -111,14 +152,45 @@ class AppraisalViewSet(OwnedTalentViewSet):
         serializer.save()
 
 
-class CompetencyRatingViewSet(DepartmentScopedTalentViewSet):
+class CompetencyRatingViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     queryset = CompetencyRating.objects.select_related('employee').all()
     serializer_class = CompetencyRatingSerializer
 
+    csv_filename = 'competency-ratings'
+    csv_activity_label = 'competency ratings'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'competency': 'Competency',
+        'level': 'Level (1-5)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['employee', 'competency']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Competency', 'Level', 'Notes']
+    csv_sample_row = ['Taylor Morgan', 'System design', '4', '']
 
-class CourseViewSet(OwnedTalentViewSet):
+    def csv_export_row(self, c):
+        return [c.employee.name, c.competency, c.level, c.notes]
+
+
+class CourseViewSet(CsvImportExportMixin, OwnedTalentViewSet):
     queryset = Course.objects.prefetch_related('enrollments').all()
     serializer_class = CourseSerializer
+
+    csv_filename = 'courses'
+    csv_activity_label = 'courses'
+    csv_import_fields = {
+        'title': 'Title',
+        'description': 'Description',
+        'duration_hours': 'Duration (hours)',
+        'is_active': 'Active (True or False)',
+    }
+    csv_required_fields = ['title']
+    csv_export_header = ['Title', 'Description', 'Duration (hours)', 'Active', 'Enrollments']
+    csv_sample_row = ['Leadership Fundamentals', 'An intro to people-management skills.', '6', 'True']
+
+    def csv_export_row(self, c):
+        return [c.title, c.description, c.duration_hours, c.is_active, c.enrollments.count()]
 
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
@@ -133,18 +205,53 @@ class EnrollmentViewSet(viewsets.ModelViewSet):
         return self.queryset.filter(course__owner_id=owner_scope_id(self.request))
 
 
-class CareerPathViewSet(DepartmentScopedTalentViewSet):
+class CareerPathViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     queryset = CareerPath.objects.select_related('employee').all()
     serializer_class = CareerPathSerializer
 
+    csv_filename = 'career-paths'
+    csv_activity_label = 'career paths'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'current_role': 'Current role',
+        'target_role': 'Target role',
+        'department': 'Department',
+        'milestones': 'Milestones',
+        'target_date': 'Target date (YYYY-MM-DD)',
+    }
+    csv_required_fields = ['employee']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Current role', 'Target role', 'Department', 'Milestones', 'Target date']
+    csv_sample_row = ['Taylor Morgan', 'Engineer', 'Senior Engineer', 'Engineering', 'Lead a cross-team project.', '2027-01-01']
 
-class SuccessionPlanViewSet(viewsets.ModelViewSet):
+    def csv_export_row(self, c):
+        return [c.employee.name, c.current_role, c.target_role, c.department, c.milestones, c.target_date]
+
+
+class SuccessionPlanViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """View-only for Department Head — succession planning isn't in their
     write list."""
 
     queryset = SuccessionPlan.objects.select_related('employee').all()
     serializer_class = SuccessionPlanSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+
+    csv_filename = 'succession-plans'
+    csv_activity_label = 'succession plans'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'potential_rating': 'Potential (Low, Medium, or High)',
+        'performance_rating': 'Performance (Low, Medium, or High)',
+        'successor_notes': 'Successor notes',
+        'ready_now': 'Ready now (True or False)',
+    }
+    csv_required_fields = ['employee']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Potential', 'Performance', 'Successor notes', 'Ready now']
+    csv_sample_row = ['Taylor Morgan', 'High', 'High', '', 'True']
+
+    def csv_export_row(self, s):
+        return [s.employee.name, s.potential_rating, s.performance_rating, s.successor_notes, s.ready_now]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -156,7 +263,7 @@ class SuccessionPlanViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class RecruiterFeedbackViewSet(viewsets.ModelViewSet):
+class RecruiterFeedbackViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Recruiter creates feedback notes on a placed/hired employee; HR
     views them (read-only for HR even though IsHR is OR'd in — enforced by
     the explicit role check in perform_create, not by http_method_names,
@@ -166,6 +273,21 @@ class RecruiterFeedbackViewSet(viewsets.ModelViewSet):
     queryset = RecruiterFeedback.objects.select_related('employee').all()
     serializer_class = RecruiterFeedbackSerializer
     permission_classes = [IsAuthenticated, IsRecruiter | IsHR]
+
+    csv_filename = 'recruiter-feedback'
+    csv_activity_label = 'recruiter feedback notes'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'given_by': 'Given by',
+        'message': 'Message',
+    }
+    csv_required_fields = ['employee', 'message']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Given by', 'Message', 'Date']
+    csv_sample_row = ['Taylor Morgan', 'Alex Rivera', 'Ramped up fast and integrated well with the team.']
+
+    def csv_export_row(self, f):
+        return [f.employee.name, f.given_by, f.message, f.created_at]
 
     def get_queryset(self):
         return self.queryset.filter(owner_id=owner_scope_id(self.request))

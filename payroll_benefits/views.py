@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.activity import log_activity
+from core.csv_io import CsvImportExportMixin, resolve_employee, resolve_related
 from core.permissions import (
     IsDepartmentHeadReadOnly,
     IsFinanceAdmin,
@@ -35,6 +36,10 @@ from .serializers import (
 )
 
 
+def _resolve_plan(owner_id, raw_value):
+    return resolve_related(BenefitPlan, owner_id, raw_value, match_fields=['name'], label='Benefit plan')
+
+
 class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
     """Shared base — every model in this app has its own `owner` field.
     Finance Admin gets the same full-tier access as HR/Admin across this
@@ -49,13 +54,31 @@ class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class PayrollRunViewSet(OwnedPayrollBenefitsViewSet):
+class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     """Finance Admin may create/update a payroll run, but can never mark it
     'Reconciled' themselves — that final sign-off stays HR/Admin-only, the
     "approval required" gate for payroll processing."""
 
     queryset = PayrollRun.objects.all()
     serializer_class = PayrollRunSerializer
+
+    csv_filename = 'payroll-runs'
+    csv_activity_label = 'payroll runs'
+    csv_import_fields = {
+        'period': 'Period (e.g. "August 2026")',
+        'contractors': 'Contractors',
+        'amount': 'Amount',
+        'currency': 'Currency (3-letter code, e.g. USD)',
+        'status': 'Status (Processing, Needs review, or Reconciled)',
+        'discrepancy_flagged': 'Discrepancy flagged (True or False)',
+        'audit_notes': 'Audit notes',
+    }
+    csv_required_fields = ['period']
+    csv_export_header = ['Period', 'Contractors', 'Amount', 'Currency', 'Status', 'Discrepancy flagged']
+    csv_sample_row = ['August 2026', '3', '145000', 'USD', 'Processing', 'False', '']
+
+    def csv_export_row(self, r):
+        return [r.period, r.contractors, r.amount, r.currency, r.status, r.discrepancy_flagged]
 
     def perform_create(self, serializer):
         if _role_is(self.request, 'Finance Admin') and serializer.validated_data.get('status') == 'Reconciled':
@@ -74,7 +97,7 @@ class PayrollRunViewSet(OwnedPayrollBenefitsViewSet):
         serializer.save()
 
 
-class TaxProfileViewSet(viewsets.ModelViewSet):
+class TaxProfileViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head gets read-only access scoped to their own
     department on top of HR/Admin/Finance Admin's full access."""
 
@@ -82,6 +105,25 @@ class TaxProfileViewSet(viewsets.ModelViewSet):
     serializer_class = TaxProfileSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
 
+    csv_filename = 'tax-profiles'
+    csv_activity_label = 'tax profiles'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'country': 'Country',
+        'tax_id': 'Tax ID',
+        'filing_status': 'Filing status (Single, Married, Head of Household, or Not Applicable)',
+        'compliance_status': 'Compliance status (Compliant, Pending Review, or Action Required)',
+        'notes': 'Notes',
+        'last_reviewed': 'Last reviewed (YYYY-MM-DD)',
+    }
+    csv_required_fields = ['employee', 'country']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Country', 'Tax ID', 'Filing status', 'Compliance status', 'Last reviewed']
+    csv_sample_row = ['Taylor Morgan', 'United States', '', 'Single', 'Compliant', '', '2026-06-01']
+
+    def csv_export_row(self, t):
+        return [t.employee.name, t.country, t.tax_id, t.filing_status, t.compliance_status, t.last_reviewed]
+
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
@@ -92,12 +134,29 @@ class TaxProfileViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class ComplianceEventViewSet(OwnedPayrollBenefitsViewSet):
+class ComplianceEventViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     queryset = ComplianceEvent.objects.all()
     serializer_class = ComplianceEventSerializer
 
+    csv_filename = 'compliance-events'
+    csv_activity_label = 'compliance events'
+    csv_import_fields = {
+        'country': 'Country',
+        'title': 'Title',
+        'category': 'Category (Tax Filing, Currency Update, or Regulatory)',
+        'due_date': 'Due date (YYYY-MM-DD)',
+        'completed': 'Completed (True or False)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['country', 'title', 'due_date']
+    csv_export_header = ['Country', 'Title', 'Category', 'Due date', 'Completed']
+    csv_sample_row = ['United States', 'Q3 payroll tax filing', 'Tax Filing', '2026-10-15', 'False', '']
 
-class BankAccountViewSet(viewsets.ModelViewSet):
+    def csv_export_row(self, e):
+        return [e.country, e.title, e.category, e.due_date, e.completed]
+
+
+class BankAccountViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head gets read-only access scoped to their own
     department on top of HR/Admin/Finance Admin's full access."""
 
@@ -105,6 +164,26 @@ class BankAccountViewSet(viewsets.ModelViewSet):
     serializer_class = BankAccountSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
 
+    csv_filename = 'bank-accounts'
+    csv_activity_label = 'bank accounts'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'bank_name': 'Bank name',
+        'account_holder_name': 'Account holder name',
+        'account_number': 'Account number (full — only the last 4 digits are stored)',
+        'routing_number': 'Routing number',
+        'account_type': 'Account type (Checking or Savings)',
+        'is_primary': 'Primary (True or False)',
+        'verified': 'Verified (True or False)',
+    }
+    csv_required_fields = ['employee', 'bank_name', 'account_holder_name', 'account_number']
+    csv_field_parsers = {'employee': resolve_employee}
+    csv_export_header = ['Employee', 'Bank name', 'Account holder', 'Last 4', 'Type', 'Primary', 'Verified']
+    csv_sample_row = ['Taylor Morgan', 'First National', 'Taylor Morgan', '000123454321', '', 'Checking', 'True', 'False']
+
+    def csv_export_row(self, b):
+        return [b.employee.name, b.bank_name, b.account_holder_name, b.account_number_last4, b.account_type, b.is_primary, b.verified]
+
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
@@ -115,18 +194,52 @@ class BankAccountViewSet(viewsets.ModelViewSet):
         serializer.save(owner_id=owner_scope_id(self.request))
 
 
-class BenefitPlanViewSet(OwnedPayrollBenefitsViewSet):
+class BenefitPlanViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     queryset = BenefitPlan.objects.prefetch_related('enrollments').all()
     serializer_class = BenefitPlanSerializer
 
+    csv_filename = 'benefit-plans'
+    csv_activity_label = 'benefit plans'
+    csv_import_fields = {
+        'name': 'Plan name',
+        'plan_type': 'Type (Health, Dental, Vision, Retirement, Life Insurance, or Other)',
+        'provider': 'Provider',
+        'employee_cost': 'Employee cost',
+        'employer_cost': 'Employer cost',
+        'description': 'Description',
+        'is_active': 'Active (True or False)',
+    }
+    csv_required_fields = ['name']
+    csv_export_header = ['Name', 'Type', 'Provider', 'Employee cost', 'Employer cost', 'Active']
+    csv_sample_row = ['PPO Gold', 'Health', 'Anthem', '120', '480', 'Preferred provider organization plan.', 'True']
 
-class BenefitEnrollmentViewSet(viewsets.ModelViewSet):
+    def csv_export_row(self, p):
+        return [p.name, p.plan_type, p.provider, p.employee_cost, p.employer_cost, p.is_active]
+
+
+class BenefitEnrollmentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head gets read-only access scoped to their own
     department on top of HR/Admin/Finance Admin's full access."""
 
     queryset = BenefitEnrollment.objects.select_related('employee', 'plan').all()
     serializer_class = BenefitEnrollmentSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
+
+    csv_filename = 'benefit-enrollments'
+    csv_activity_label = 'benefit enrollments'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'plan': 'Plan (exact name)',
+        'coverage_level': 'Coverage level (Employee Only, Employee + Spouse, Employee + Children, or Family)',
+        'status': 'Status (Enrolled, Pending, Waived, or Terminated)',
+    }
+    csv_required_fields = ['employee', 'plan']
+    csv_field_parsers = {'employee': resolve_employee, 'plan': _resolve_plan}
+    csv_export_header = ['Employee', 'Plan', 'Coverage level', 'Status', 'Enrolled at']
+    csv_sample_row = ['Taylor Morgan', 'PPO Gold', 'Employee Only', 'Enrolled']
+
+    def csv_export_row(self, e):
+        return [e.employee.name, e.plan.name, e.coverage_level, e.status, e.enrolled_at]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -148,13 +261,31 @@ class BenefitEnrollmentViewSet(viewsets.ModelViewSet):
             instance.save(update_fields=['terminated_at'])
 
 
-class BenefitClaimViewSet(viewsets.ModelViewSet):
+class BenefitClaimViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head gets read-only access scoped to their own
     department on top of HR/Admin/Finance Admin's full access."""
 
     queryset = BenefitClaim.objects.select_related('employee', 'plan').all()
     serializer_class = BenefitClaimSerializer
     permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly]
+
+    csv_filename = 'benefit-claims'
+    csv_activity_label = 'benefit claims'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'plan': 'Plan (exact name, optional)',
+        'claim_type': 'Claim type',
+        'amount': 'Amount',
+        'description': 'Description',
+        'status': 'Status (Submitted, Under Review, Approved, Rejected, or Paid)',
+    }
+    csv_required_fields = ['employee', 'claim_type', 'amount']
+    csv_field_parsers = {'employee': resolve_employee, 'plan': _resolve_plan}
+    csv_export_header = ['Employee', 'Plan', 'Claim type', 'Amount', 'Status', 'Submitted at']
+    csv_sample_row = ['Taylor Morgan', 'PPO Gold', 'Dental cleaning', '150', 'Submitted', '']
+
+    def csv_export_row(self, c):
+        return [c.employee.name, c.plan.name if c.plan else '', c.claim_type, c.amount, c.status, c.submitted_at]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
