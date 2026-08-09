@@ -4,7 +4,10 @@ __pycache__/
 db.sqlite3
 .env
 media/
+.vercel
 
 # staticfiles/ is intentionally committed (not ignored): Vercel's Python
 # builder has no collectstatic build hook, so the collected static files
 # need to already be in the repo for WhiteNoise to serve them.
+
+.vercel
