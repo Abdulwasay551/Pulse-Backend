@@ -14,6 +14,7 @@ import csv
 import io
 
 from django.http import HttpResponse
+from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -89,6 +90,29 @@ def csv_response(filename: str, header: list[str], rows: list[list]) -> HttpResp
     writer.writerow(header)
     writer.writerows(rows)
     return response
+
+
+def normalize_date_like(raw_value: str, *, as_datetime: bool = False) -> str:
+    """Best-effort parse of a date/datetime string in almost any common
+    shape — ISO, US M/D/Y, D-M-Y, month names, whatever Excel/Sheets
+    happened to export in the user's regional format — into the ISO 8601
+    string DRF's DateField/DateTimeField actually accept. People preparing
+    a CSV by hand rarely type YYYY-MM-DD; rejecting everything else makes
+    bulk import fragile for exactly the audience it's meant to help.
+    Returns the original string unchanged if it can't confidently be
+    parsed as a date at all, so DRF's own validation error still surfaces
+    with a clear message rather than silently passing through garbage."""
+    from dateutil import parser as dateutil_parser
+
+    try:
+        # dayfirst=False: ambiguous all-numeric dates (e.g. "4/12/2025")
+        # are read month-first (US convention) — the common case for this
+        # app's existing data/sample rows. Unambiguous formats (ISO, or
+        # anything with a month name) parse correctly regardless.
+        parsed = dateutil_parser.parse(raw_value, dayfirst=False)
+    except (ValueError, OverflowError, TypeError):
+        return raw_value
+    return parsed.isoformat() if as_datetime else parsed.date().isoformat()
 
 
 def resolve_related(model, owner_id, raw_value: str, *, match_fields: list[str], label: str):
@@ -223,6 +247,18 @@ class CsvImportExportMixin:
 
         serializer_class = self.get_serializer_class()
         owner_id = owner_scope_id(request)
+
+        # Auto-detect which importable fields are dates/datetimes on the
+        # model, so free-form date text (M/D/Y, D-M-Y, month names, ...)
+        # gets normalized to ISO before validation instead of just failing.
+        probe_fields = serializer_class(context={'request': request}).fields
+        date_fields = {
+            name: isinstance(field, drf_serializers.DateTimeField)
+            for name, field in probe_fields.items()
+            if name in self.csv_import_fields
+            and isinstance(field, (drf_serializers.DateField, drf_serializers.DateTimeField))
+        }
+
         created = 0
         errors = []
         for i, row in enumerate(rows, start=2):  # row 1 is the header
@@ -238,6 +274,10 @@ class CsvImportExportMixin:
                 labels = [self.csv_import_fields[f] for f in missing]
                 errors.append(f'Row {i}: {", ".join(labels)} is required')
                 continue
+
+            for field, as_datetime in date_fields.items():
+                if field in record:
+                    record[field] = normalize_date_like(record[field], as_datetime=as_datetime)
 
             resolve_error = None
             for field, parser in self.csv_field_parsers.items():
