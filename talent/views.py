@@ -84,6 +84,7 @@ class GoalViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     csv_import_fields = {
         'employee': 'Employee (name or email)',
         'title': 'Goal title',
+        'section': 'Section (e.g. "Q3 OKRs", "Onboarding")',
         'description': 'Description',
         'target_date': 'Target date (YYYY-MM-DD)',
         'status': 'Status (Not Started, In Progress, or Completed)',
@@ -91,11 +92,11 @@ class GoalViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     }
     csv_required_fields = ['employee', 'title']
     csv_field_parsers = {'employee': resolve_employee}
-    csv_export_header = ['Employee', 'Title', 'Description', 'Target date', 'Status', 'Progress']
-    csv_sample_row = ['Taylor Morgan', 'Ship the Q3 roadmap', 'Deliver the three headline features.', '2026-09-30', 'In Progress', '40']
+    csv_export_header = ['Employee', 'Title', 'Section', 'Description', 'Target date', 'Status', 'Progress']
+    csv_sample_row = ['Taylor Morgan', 'Ship the Q3 roadmap', 'Q3 OKRs', 'Deliver the three headline features.', '2026-09-30', 'In Progress', '40']
 
     def csv_export_row(self, g):
-        return [g.employee.name, g.title, g.description, g.target_date, g.status, g.progress]
+        return [g.employee.name, g.title, g.section, g.description, g.target_date, g.status, g.progress]
 
 
 class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
@@ -183,14 +184,15 @@ class CourseViewSet(CsvImportExportMixin, OwnedTalentViewSet):
         'title': 'Title',
         'description': 'Description',
         'duration_hours': 'Duration (hours)',
+        'link': 'Course link (Google Meet, Udemy Business, LinkedIn Learning, etc.)',
         'is_active': 'Active (True or False)',
     }
     csv_required_fields = ['title']
-    csv_export_header = ['Title', 'Description', 'Duration (hours)', 'Active', 'Enrollments']
-    csv_sample_row = ['Leadership Fundamentals', 'An intro to people-management skills.', '6', 'True']
+    csv_export_header = ['Title', 'Description', 'Duration (hours)', 'Link', 'Active', 'Enrollments']
+    csv_sample_row = ['Leadership Fundamentals', 'An intro to people-management skills.', '6', 'https://www.udemy.com/course/leadership-fundamentals/', 'True']
 
     def csv_export_row(self, c):
-        return [c.title, c.description, c.duration_hours, c.is_active, c.enrollments.count()]
+        return [c.title, c.description, c.duration_hours, c.link, c.is_active, c.enrollments.count()]
 
 
 class EnrollmentViewSet(viewsets.ModelViewSet):

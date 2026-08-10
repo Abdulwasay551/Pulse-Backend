@@ -14,6 +14,10 @@ class Goal(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='goals')
     employee = models.ForeignKey('people.Employee', on_delete=models.CASCADE, related_name='goals')
     title = models.CharField(max_length=200)
+    # Free-text grouping/theme (e.g. "Q3 OKRs", "Onboarding") — same
+    # pattern as Employee.department, not a fixed choice list, since goal
+    # themes vary per team/quarter and shouldn't require a schema change.
+    section = models.CharField(max_length=150, blank=True)
     description = models.TextField(blank=True)
     target_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Not Started')
@@ -86,6 +90,12 @@ class Course(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     duration_hours = models.PositiveIntegerField(default=1)
+    # Where the course actually happens — a Google Meet Live Training link,
+    # a Udemy Business / LinkedIn Learning course URL, etc. Plain link
+    # field rather than a real vendor API integration, since no such
+    # vendor account is provisioned for this project (same reasoning as
+    # Background Check's "internal tracking, real vendor plugs in later").
+    link = models.URLField(blank=True, help_text='Google Meet, Udemy Business, LinkedIn Learning, or any other course URL.')
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -12,6 +12,21 @@ review yet.
 """
 
 
+def _feedback_from_latest_appraisal(appraisals):
+    """Pulls the actual written feedback (strengths / areas for
+    improvement) off the most recent appraisal — the numeric rating alone
+    doesn't say anything a reader couldn't already see in the Rating
+    column, so this is what makes the score card read as real feedback
+    rather than a re-stated average."""
+    latest = max(appraisals, key=lambda a: a.created_at)
+    parts = []
+    if latest.strengths:
+        parts.append(f'Strengths: {latest.strengths}')
+    if latest.areas_for_improvement:
+        parts.append(f'Areas for improvement: {latest.areas_for_improvement}')
+    return ' '.join(parts)
+
+
 def compute_value_score(employee):
     goals = list(employee.goals.all())
     appraisals = list(employee.appraisals.all())
@@ -34,4 +49,11 @@ def compute_value_score(employee):
         return None, 'No goals or appraisals on file yet.'
 
     score = round(sum(parts) / len(parts))
-    return score, '; '.join(notes) + '.'
+    summary = '; '.join(notes) + '.'
+
+    if appraisals:
+        feedback = _feedback_from_latest_appraisal(appraisals)
+        if feedback:
+            summary = f'{summary} {feedback}'
+
+    return score, summary

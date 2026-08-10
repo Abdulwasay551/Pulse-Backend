@@ -27,7 +27,7 @@ class GoalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Goal
         fields = [
-            'id', 'employee', 'employee_detail', 'title', 'description', 'target_date',
+            'id', 'employee', 'employee_detail', 'title', 'section', 'description', 'target_date',
             'status', 'progress', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -68,7 +68,7 @@ class CourseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Course
-        fields = ['id', 'title', 'description', 'duration_hours', 'is_active', 'enrolled_count', 'created_at']
+        fields = ['id', 'title', 'description', 'duration_hours', 'link', 'is_active', 'enrolled_count', 'created_at']
         read_only_fields = ['id', 'created_at']
 
     def get_enrolled_count(self, obj):
