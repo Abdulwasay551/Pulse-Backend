@@ -30,6 +30,26 @@ class PayrollRun(models.Model):
         return self.period
 
 
+class ExchangeRate(models.Model):
+    """Multi-Currency Support — HR/Finance Admin-maintained conversion
+    rates (no live FX API is provisioned for this project, so "daily FX
+    feed" becomes "manually refreshed, with `updated_at` showing how
+    stale it is" — the practical version of "rate locked on a monthly
+    basis"). `rate_to_usd` is USD per 1 unit of `currency`."""
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='exchange_rates')
+    currency = models.CharField(max_length=3)
+    rate_to_usd = models.DecimalField(max_digits=12, decimal_places=6, default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['currency']
+        unique_together = ['owner', 'currency']
+
+    def __str__(self):
+        return f'{self.currency} = {self.rate_to_usd} USD'
+
+
 class TaxProfile(models.Model):
     """Multi-Country Tax Compliance — one per employee, tracking which
     jurisdiction's payroll taxes they're filed under and whether that

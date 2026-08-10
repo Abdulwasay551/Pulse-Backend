@@ -7,6 +7,7 @@ from .views import (
     BenefitEnrollmentViewSet,
     BenefitPlanViewSet,
     ComplianceEventViewSet,
+    ExchangeRateViewSet,
     PayrollBenefitsDashboardSummaryView,
     PayrollRunViewSet,
     TaxProfileViewSet,
@@ -14,6 +15,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register('payroll-runs', PayrollRunViewSet, basename='payroll-run')
+router.register('exchange-rates', ExchangeRateViewSet, basename='exchange-rate')
 router.register('tax-profiles', TaxProfileViewSet, basename='tax-profile')
 router.register('compliance-events', ComplianceEventViewSet, basename='compliance-event')
 router.register('bank-accounts', BankAccountViewSet, basename='bank-account')

@@ -10,6 +10,7 @@ from .models import (
     BenefitEnrollment,
     BenefitPlan,
     ComplianceEvent,
+    ExchangeRate,
     PayrollRun,
     TaxProfile,
 )
@@ -19,6 +20,16 @@ def _validate_owned_employee(employee, user_id):
     if employee.owner_id != user_id:
         raise serializers.ValidationError("That employee doesn't belong to you.")
     return employee
+
+
+class ExchangeRateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ExchangeRate
+        fields = ['id', 'currency', 'rate_to_usd', 'updated_at']
+        read_only_fields = ['id', 'updated_at']
+
+    def validate_currency(self, value):
+        return value.upper()
 
 
 class PayrollRunSerializer(serializers.ModelSerializer):

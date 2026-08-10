@@ -24,6 +24,7 @@ from .models import (
     BenefitEnrollment,
     BenefitPlan,
     ComplianceEvent,
+    ExchangeRate,
     PayrollRun,
     TaxProfile,
 )
@@ -33,6 +34,7 @@ from .serializers import (
     BenefitEnrollmentSerializer,
     BenefitPlanSerializer,
     ComplianceEventSerializer,
+    ExchangeRateSerializer,
     PayrollRunSerializer,
     TaxProfileSerializer,
 )
@@ -129,6 +131,42 @@ class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
         return Response(
             [{'id': e.id, 'message': e.message, 'tone': e.tone, 'created_at': e.created_at} for e in entries]
         )
+
+
+class ExchangeRateViewSet(viewsets.ModelViewSet):
+    """Multi-Currency Support's rate source — HR/Finance Admin maintain
+    these directly (no live FX API is provisioned), so `updated_at` is the
+    honest "as of" date rather than a fabricated daily feed."""
+
+    queryset = ExchangeRate.objects.all()
+    serializer_class = ExchangeRateSerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin]
+
+    def get_queryset(self):
+        return self.queryset.filter(owner_id=owner_scope_id(self.request))
+
+    def perform_create(self, serializer):
+        serializer.save(owner_id=owner_scope_id(self.request))
+
+    @action(detail=False, methods=['get'])
+    def convert(self, request):
+        amount_raw = request.query_params.get('amount')
+        from_currency = (request.query_params.get('from') or '').upper()
+        to_currency = (request.query_params.get('to') or '').upper()
+        try:
+            amount = float(amount_raw)
+        except (TypeError, ValueError):
+            return Response({'detail': 'A numeric amount is required.'}, status=400)
+
+        rates = {r.currency: float(r.rate_to_usd) for r in self.get_queryset()}
+        rates.setdefault('USD', 1.0)
+        if from_currency not in rates or to_currency not in rates:
+            return Response(
+                {'detail': 'No rate on file for one of these currencies yet — add it below first.'}, status=400
+            )
+        usd_value = amount * rates[from_currency]
+        converted = usd_value / rates[to_currency]
+        return Response({'amount': amount, 'from': from_currency, 'to': to_currency, 'result': round(converted, 2)})
 
 
 class TaxProfileViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
@@ -366,7 +404,6 @@ class PayrollBenefitsDashboardSummaryView(APIView):
         enrollments = BenefitEnrollment.objects.filter(owner_id=uid)
         claims = BenefitClaim.objects.filter(owner_id=uid)
         plans = BenefitPlan.objects.filter(owner_id=uid)
-        bank_accounts = BankAccount.objects.filter(owner_id=uid)
 
         latest_run = runs.first()
         needs_review = runs.filter(status='Needs review').count()
@@ -377,12 +414,15 @@ class PayrollBenefitsDashboardSummaryView(APIView):
             start=0,
         )
 
-        claim_amounts = list(claims.values_list('amount', flat=True))
-        avg_claim = sum(claim_amounts) / len(claim_amounts) if claim_amounts else 0
-
-        bank_total = bank_accounts.count()
-        bank_verified = bank_accounts.filter(verified=True).count()
-        verified_pct = round(bank_verified / bank_total * 100) if bank_total else 0
+        # Payroll cost trend — last 6 runs, oldest first, for the Overview
+        # page's analytical chart (replaces the flat "Compliance & audit
+        # KPIs" grid per the change-request doc).
+        recent_runs = list(runs[:6])
+        recent_runs.reverse()
+        payroll_trend = [
+            {'label': r.period, 'value': float(r.amount), 'currency': r.currency}
+            for r in recent_runs
+        ]
 
         return Response(
             {
@@ -396,20 +436,6 @@ class PayrollBenefitsDashboardSummaryView(APIView):
                     {'label': 'Runs needing review', 'value': str(needs_review), 'change': '', 'href': '/dashboard/payroll'},
                     {'label': 'Active benefit enrollments', 'value': str(active_enrollments), 'change': '', 'href': '/dashboard/benefits-enrollment'},
                     {'label': 'Pending claims', 'value': str(pending_claims), 'change': '', 'href': '/dashboard/claims'},
-                ],
-                # Direct financial/operational numbers rather than
-                # compliance/audit counts — those live on their own pages
-                # (Tax Compliance, Compliance Calendar, Payroll Audit) where
-                # the detail is actually actionable.
-                'kpis': [
-                    {
-                        'label': 'Latest payroll amount',
-                        'value': f'{latest_run.currency} {float(latest_run.amount):,.0f}' if latest_run else '—',
-                        'href': '/dashboard/payroll',
-                    },
-                    {'label': 'Total monthly benefit cost', 'value': f'${float(total_benefit_cost):,.0f}', 'href': '/dashboard/benefit-cost-analysis'},
-                    {'label': 'Average claim amount', 'value': f'${float(avg_claim):,.0f}', 'href': '/dashboard/claims'},
-                    {'label': 'Bank accounts verified', 'value': f'{verified_pct}%', 'href': '/dashboard/direct-deposit'},
                 ],
                 'benefit_cost_by_type': [
                     {
@@ -428,6 +454,7 @@ class PayrollBenefitsDashboardSummaryView(APIView):
                 'benefit_cost_by_location': _group_enrollment_cost(enrollments, 'employee__location'),
                 'benefit_cost_by_employee': _group_enrollment_cost_by_employee(enrollments),
                 'total_monthly_benefit_cost': float(total_benefit_cost),
+                'payroll_trend': payroll_trend,
             }
         )
 
