@@ -82,6 +82,15 @@ class ComplianceEvent(models.Model):
     title = models.CharField(max_length=200)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='Tax Filing')
     due_date = models.DateField()
+    # Nullable/blank — most regulatory deadlines (e.g. a filing) have no
+    # dollar amount attached; only currency-update / payment-linked events
+    # do, so this isn't forced to a fabricated 0.
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=3, blank=True)
+    responsible_party = models.CharField(max_length=150, blank=True)
+    linked_payroll_run = models.ForeignKey(
+        'PayrollRun', on_delete=models.SET_NULL, null=True, blank=True, related_name='compliance_events'
+    )
     completed = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -108,6 +117,7 @@ class BankAccount(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='bank_accounts')
     employee = models.ForeignKey('people.Employee', on_delete=models.CASCADE, related_name='bank_accounts')
     bank_name = models.CharField(max_length=150)
+    bank_country = models.CharField(max_length=100, blank=True)
     account_holder_name = models.CharField(max_length=150)
     account_number_last4 = models.CharField(max_length=4)
     routing_number = models.CharField(max_length=20, blank=True)

@@ -48,14 +48,21 @@ class TaxProfileSerializer(serializers.ModelSerializer):
 
 class ComplianceEventSerializer(serializers.ModelSerializer):
     calendar_status = serializers.SerializerMethodField()
+    linked_payroll_run_period = serializers.CharField(source='linked_payroll_run.period', read_only=True, default=None)
 
     class Meta:
         model = ComplianceEvent
         fields = [
-            'id', 'country', 'title', 'category', 'due_date', 'completed', 'notes',
-            'calendar_status', 'created_at', 'updated_at',
+            'id', 'country', 'title', 'category', 'due_date', 'amount', 'currency',
+            'responsible_party', 'linked_payroll_run', 'linked_payroll_run_period',
+            'completed', 'notes', 'calendar_status', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_linked_payroll_run(self, run):
+        if run and run.owner_id != owner_scope_id(self.context['request']):
+            raise serializers.ValidationError("That payroll run doesn't belong to you.")
+        return run
 
     def get_calendar_status(self, obj):
         if obj.completed:
@@ -76,7 +83,7 @@ class BankAccountSerializer(serializers.ModelSerializer):
     class Meta:
         model = BankAccount
         fields = [
-            'id', 'employee', 'employee_detail', 'bank_name', 'account_holder_name',
+            'id', 'employee', 'employee_detail', 'bank_name', 'bank_country', 'account_holder_name',
             'account_number', 'account_number_last4', 'routing_number', 'account_type',
             'is_primary', 'verified', 'created_at', 'updated_at',
         ]
