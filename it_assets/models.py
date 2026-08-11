@@ -34,6 +34,9 @@ class Asset(models.Model):
     serial_number = models.CharField(max_length=100, blank=True)
     purchase_date = models.DateField(null=True, blank=True)
     warranty_expiry = models.DateField(null=True, blank=True)
+    warranty_provider = models.CharField(max_length=150, blank=True)
+    warranty_notes = models.TextField(blank=True)
+    warranty_document = models.FileField(upload_to='warranty-documents/%Y/%m/', null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='In Stock')
     assigned_to = models.ForeignKey(
         'people.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name='assets'
@@ -115,6 +118,7 @@ class AssetIncident(models.Model):
     resolved = models.BooleanField(default=False)
     resolution_notes = models.TextField(blank=True)
     cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    currency = models.CharField(max_length=3, default='USD')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -148,6 +152,37 @@ class BYODCompliance(models.Model):
 
     class Meta:
         ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'{self.employee.name} — {self.asset.asset_tag}'
+
+
+class AssetRecovery(models.Model):
+    """Offboarding Recovery (IT Management) — IT assets that must be
+    reclaimed from a departing employee. Separate from Recruit's
+    Offboarding checklist (which just has a generic "Hardware Clearance"
+    task); this ties the recovery to a real Asset row and, on marking it
+    Recovered, unassigns that asset back into the provisioning pool."""
+
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('Recovered', 'Recovered'),
+        ('Not Returned', 'Not Returned'),
+    ]
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='asset_recoveries')
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name='recoveries')
+    employee = models.ForeignKey('people.Employee', on_delete=models.CASCADE, related_name='asset_recoveries')
+    last_working_day = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    recovered_at = models.DateField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'Asset recoveries'
 
     def __str__(self):
         return f'{self.employee.name} — {self.asset.asset_tag}'

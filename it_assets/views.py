@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,9 +18,10 @@ from core.permissions import (
     owner_scope_id,
 )
 
-from .models import Asset, AssetIncident, BYODCompliance, SupportTicket
+from .models import Asset, AssetIncident, AssetRecovery, BYODCompliance, SupportTicket
 from .serializers import (
     AssetIncidentSerializer,
+    AssetRecoverySerializer,
     AssetSerializer,
     BYODComplianceSerializer,
     SupportTicketSerializer,
@@ -47,6 +49,7 @@ class OwnedItAssetsViewSet(viewsets.ModelViewSet):
 class AssetViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
     queryset = Asset.objects.select_related('assigned_to').all()
     serializer_class = AssetSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     csv_filename = 'assets'
     csv_activity_label = 'assets'
@@ -154,14 +157,18 @@ class AssetIncidentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
         'resolved': 'Resolved (True or False)',
         'resolution_notes': 'Resolution notes',
         'cost': 'Cost',
+        'currency': 'Currency (e.g. USD, EUR, GBP)',
     }
     csv_required_fields = ['asset', 'incident_type']
     csv_field_parsers = {'asset': _resolve_asset, 'employee': resolve_employee}
-    csv_export_header = ['Asset', 'Employee', 'Type', 'Incident date', 'Resolved', 'Cost']
-    csv_sample_row = ['LT-1042', 'Taylor Morgan', 'Damage', 'Cracked screen corner.', '2026-07-15', 'False', '', '150']
+    csv_export_header = ['Asset', 'Employee', 'Type', 'Incident date', 'Resolved', 'Cost', 'Currency']
+    csv_sample_row = ['LT-1042', 'Taylor Morgan', 'Damage', 'Cracked screen corner.', '2026-07-15', 'False', '', '150', 'USD']
 
     def csv_export_row(self, i):
-        return [i.asset.asset_tag, i.employee.name if i.employee else '', i.incident_type, i.incident_date, i.resolved, i.cost]
+        return [
+            i.asset.asset_tag, i.employee.name if i.employee else '', i.incident_type, i.incident_date,
+            i.resolved, i.cost, i.currency,
+        ]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -175,6 +182,50 @@ class AssetIncidentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
             if not employee or employee.department != self.request.user.profile.department:
                 raise PermissionDenied("You can only file an incident for an employee in your department.")
         serializer.save(owner_id=owner_scope_id(self.request))
+
+
+class AssetRecoveryViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
+    """Offboarding Recovery — marking a recovery Recovered also unassigns
+    the underlying Asset back into the provisioning pool, so this is the
+    single action that closes the loop between "employee is leaving" and
+    "device is back in stock"."""
+
+    queryset = AssetRecovery.objects.select_related('employee', 'asset').all()
+    serializer_class = AssetRecoverySerializer
+
+    csv_filename = 'asset-recoveries'
+    csv_activity_label = 'asset recoveries'
+    csv_import_fields = {
+        'employee': 'Employee (name or email)',
+        'asset': 'Asset (tag or name)',
+        'last_working_day': 'Last working day (YYYY-MM-DD)',
+        'status': 'Status (Pending, Recovered, or Not Returned)',
+        'notes': 'Notes',
+    }
+    csv_required_fields = ['employee', 'asset']
+    csv_field_parsers = {'employee': resolve_employee, 'asset': _resolve_asset}
+    csv_export_header = ['Employee', 'Asset', 'Last working day', 'Status', 'Notes']
+    csv_sample_row = ['Taylor Morgan', 'LT-1042', '2026-08-29', 'Pending', 'Collect at exit interview.']
+
+    def csv_export_row(self, r):
+        return [r.employee.name, r.asset.asset_tag, r.last_working_day, r.status, r.notes]
+
+    def perform_update(self, serializer):
+        was_recovered = serializer.instance.status == 'Recovered'
+        instance = serializer.save()
+        if not was_recovered and instance.status == 'Recovered':
+            instance.recovered_at = date.today()
+            instance.save(update_fields=['recovered_at'])
+            asset = instance.asset
+            if asset.assigned_to_id:
+                asset.assigned_to = None
+                asset.status = 'In Stock'
+                asset.save(update_fields=['assigned_to', 'status'])
+            log_activity(
+                owner_scope_id(self.request),
+                f'{asset.name} ({asset.asset_tag}) recovered from {instance.employee.name}',
+                'primary',
+            )
 
 
 class BYODComplianceViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
@@ -219,6 +270,7 @@ class ItAssetsDashboardSummaryView(APIView):
         tickets = SupportTicket.objects.filter(owner_id=uid)
         incidents = AssetIncident.objects.filter(owner_id=uid)
         byod_checks = BYODCompliance.objects.filter(owner_id=uid)
+        recoveries = AssetRecovery.objects.filter(owner_id=uid)
 
         today = date.today()
         assigned_count = assets.filter(status='Assigned').count()
@@ -230,6 +282,7 @@ class ItAssetsDashboardSummaryView(APIView):
         open_tickets = tickets.exclude(status__in=['Resolved', 'Closed']).count()
         unresolved_incidents = incidents.filter(resolved=False).count()
         non_compliant_byod = byod_checks.filter(compliance_status='Non-Compliant').count()
+        pending_recoveries = recoveries.filter(status='Pending').count()
 
         return Response(
             {
@@ -244,6 +297,7 @@ class ItAssetsDashboardSummaryView(APIView):
                     {'label': 'Warranties expired', 'value': str(expired), 'href': '/dashboard/warranty-tracking'},
                     {'label': 'Unresolved incidents', 'value': str(unresolved_incidents), 'href': '/dashboard/device-tracker'},
                     {'label': 'BYOD devices non-compliant', 'value': str(non_compliant_byod), 'href': '/dashboard/byod-policy'},
+                    {'label': 'Pending asset recoveries', 'value': str(pending_recoveries), 'href': '/dashboard/asset-recovery'},
                 ],
             }
         )
