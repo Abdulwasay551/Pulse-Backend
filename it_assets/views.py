@@ -299,5 +299,10 @@ class ItAssetsDashboardSummaryView(APIView):
                     {'label': 'BYOD devices non-compliant', 'value': str(non_compliant_byod), 'href': '/dashboard/byod-policy'},
                     {'label': 'Pending asset recoveries', 'value': str(pending_recoveries), 'href': '/dashboard/asset-recovery'},
                 ],
+                'flags': {
+                    'non_compliant_byod': non_compliant_byod,
+                    'unresolved_incidents': unresolved_incidents,
+                    'pending_recoveries': pending_recoveries,
+                },
             }
         )

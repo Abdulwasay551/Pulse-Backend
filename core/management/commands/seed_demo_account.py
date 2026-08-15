@@ -62,7 +62,7 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        password = os.getenv('DEMO_ACCOUNT_PASSWORD', 'EvoHRDemo2026!')
+        password = os.getenv('DEMO_ACCOUNT_PASSWORD', 'PulseDemo2026!')
 
         def seed_role_account(username, role, *, first_name='', last_name='', employee=None, department=''):
             """Creates (or resets the password/profile on) a demo login for
@@ -71,9 +71,9 @@ class Command(BaseCommand):
             on a second pass."""
             u, _ = User.objects.get_or_create(
                 username=username,
-                defaults={'email': f'{username}@evohr.demo', 'first_name': first_name, 'last_name': last_name},
+                defaults={'email': f'{username}@Pulse.demo', 'first_name': first_name, 'last_name': last_name},
             )
-            u.email = f'{username}@evohr.demo'
+            u.email = f'{username}@Pulse.demo'
             u.first_name = first_name
             u.last_name = last_name
             u.set_password(password)
@@ -86,9 +86,9 @@ class Command(BaseCommand):
 
         user, created = User.objects.get_or_create(
             username=DEMO_USERNAME,
-            defaults={'email': 'demo@evohr.app', 'first_name': 'Jordan', 'last_name': 'Blake'},
+            defaults={'email': 'demo@Pulse.app', 'first_name': 'Jordan', 'last_name': 'Blake'},
         )
-        user.email = 'demo@evohr.app'
+        user.email = 'demo@Pulse.app'
         user.first_name = 'Jordan'
         user.last_name = 'Blake'
         user.set_password(password)
@@ -300,32 +300,32 @@ class Command(BaseCommand):
         # departments, so Employee Database/Org Chart/the People dashboard
         # all show something real out of the box.
         cto = Employee.objects.create(
-            owner=user, name='Marcus Webb', email='marcus.webb@evohr.demo', job_title='CTO',
+            owner=user, name='Marcus Webb', email='marcus.webb@Pulse.demo', job_title='CTO',
             department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
             location='Austin, TX', hire_date=d(1, 12), permanent_date=d(4, 12), status='Active', monthly_salary=18000,
         )
         eng_manager = Employee.objects.create(
-            owner=user, name='Priya Chandran', email='priya.chandran@evohr.demo', job_title='Engineering Manager',
+            owner=user, name='Priya Chandran', email='priya.chandran@Pulse.demo', job_title='Engineering Manager',
             department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
             location='Austin, TX', manager=cto, hire_date=d(3, 4), permanent_date=d(6, 4), status='Active', monthly_salary=12500,
         )
         diego = Employee.objects.create(
-            owner=user, name='Diego Fernandez', email='diego.fernandez@evohr.demo', job_title='Senior Engineer',
+            owner=user, name='Diego Fernandez', email='diego.fernandez@Pulse.demo', job_title='Senior Engineer',
             department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
             location='Remote — Mexico City', manager=eng_manager, hire_date=d(4, 18), permanent_date=d(7, 18), status='Active', monthly_salary=9800,
         )
         sofia = Employee.objects.create(
-            owner=user, name='Sofia Marin', email='sofia.marin@evohr.demo', job_title='Engineer',
+            owner=user, name='Sofia Marin', email='sofia.marin@Pulse.demo', job_title='Engineer',
             department='Engineering', client_name='Northbridge Talent', salary_type='Salaried',
             location='Remote — Barcelona', manager=eng_manager, hire_date=d(6, 2), status='On Leave', monthly_salary=7200,
         )
         hr_lead = Employee.objects.create(
-            owner=user, name='Jordan Ellis', email='jordan.ellis@evohr.demo', job_title='Head of People',
+            owner=user, name='Jordan Ellis', email='jordan.ellis@Pulse.demo', job_title='Head of People',
             department='People Ops', salary_type='Salaried', location='Austin, TX',
             hire_date=d(2, 9), permanent_date=d(5, 9), status='Active', monthly_salary=10500,
         )
         tasha = Employee.objects.create(
-            owner=user, name='Tasha Reyes', email='tasha.reyes@evohr.demo', job_title='HR Coordinator',
+            owner=user, name='Tasha Reyes', email='tasha.reyes@Pulse.demo', job_title='HR Coordinator',
             department='People Ops', salary_type='Hourly', location='Austin, TX',
             manager=hr_lead, hire_date=d(5, 20), status='Active', monthly_salary=5400,
         )
@@ -487,7 +487,7 @@ class Command(BaseCommand):
         )
 
         health_plan = BenefitPlan.objects.create(
-            owner=user, name='EvoHR Gold PPO', plan_type='Health', provider='Blue Shield',
+            owner=user, name='Pulse Gold PPO', plan_type='Health', provider='Blue Shield',
             employee_cost=85, employer_cost=410,
             description='Preferred provider organization plan covering medical, with a low deductible.',
         )
@@ -529,27 +529,27 @@ class Command(BaseCommand):
         # Provisioning (assigned_to), Warranty Tracking, IT Support
         # Requests, Device Tracker, and BYOD Security Policy.
         laptop_diego = Asset.objects.create(
-            owner=user, asset_tag='EVO-LT-1042', name='MacBook Pro 14"', category='Laptop',
+            owner=user, asset_tag='PLS-LT-1042', name='MacBook Pro 14"', category='Laptop',
             serial_number='C02FX3QJMD6T', purchase_date=d(4, 15), warranty_expiry=date(YEAR + 1, 4, 15),
             status='Assigned', assigned_to=diego, assigned_at=d(4, 18),
         )
         laptop_tasha = Asset.objects.create(
-            owner=user, asset_tag='EVO-LT-1055', name='Dell XPS 13', category='Laptop',
+            owner=user, asset_tag='PLS-LT-1055', name='Dell XPS 13', category='Laptop',
             serial_number='5CD1234XYZ', purchase_date=d(5, 18), warranty_expiry=date(YEAR, 8, 1),
             status='Assigned', assigned_to=tasha, assigned_at=d(5, 20),
         )
         monitor_spare = Asset.objects.create(
-            owner=user, asset_tag='EVO-MN-2011', name='Dell UltraSharp 27"', category='Monitor',
+            owner=user, asset_tag='PLS-MN-2011', name='Dell UltraSharp 27"', category='Monitor',
             serial_number='CN-0T7C9P', purchase_date=d(2, 1), warranty_expiry=date(YEAR + 2, 2, 1),
             status='In Stock',
         )
         phone_sofia = Asset.objects.create(
-            owner=user, asset_tag='EVO-PH-3007', name='iPhone 15', category='Phone',
+            owner=user, asset_tag='PLS-PH-3007', name='iPhone 15', category='Phone',
             serial_number='F2LN8Q3RJ9', purchase_date=d(6, 2), warranty_expiry=date(YEAR, 12, 2),
             status='Assigned', assigned_to=sofia, assigned_at=d(6, 2), is_byod=False,
         )
         personal_laptop_eng_manager = Asset.objects.create(
-            owner=user, asset_tag='EVO-BYOD-004', name="Priya's personal MacBook Air", category='Laptop',
+            owner=user, asset_tag='PLS-BYOD-004', name="Priya's personal MacBook Air", category='Laptop',
             serial_number='FVFXQ2K1Q6L4', status='Assigned', assigned_to=eng_manager, assigned_at=d(3, 4),
             is_byod=True, notes='Personal device approved for email + Slack access only.',
         )

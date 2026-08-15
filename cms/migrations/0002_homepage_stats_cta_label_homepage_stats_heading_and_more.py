@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='homepage',
             name='stats_heading',
-            field=models.CharField(default='EvoHR makes closing placements effortless', max_length=200),
+            field=models.CharField(default='Pulse makes closing placements effortless', max_length=200),
         ),
         migrations.AddField(
             model_name='homepage',

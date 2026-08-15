@@ -1,4 +1,5 @@
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -331,6 +332,9 @@ class TalentDashboardSummaryView(APIView):
 
         goals_in_progress = goals.filter(status='In Progress').count()
         goals_completed = goals.filter(status='Completed').count()
+        overdue_goals = goals.exclude(status='Completed').filter(
+            target_date__isnull=False, target_date__lt=timezone.now().date()
+        ).count()
         completed_enrollments = enrollments.filter(status='Completed').count()
         completion_rate = round(completed_enrollments / enrollments.count() * 100) if enrollments.count() else 0
         ready_now = succession_plans.filter(ready_now=True).count()
@@ -358,5 +362,8 @@ class TalentDashboardSummaryView(APIView):
                     {'label': 'Competencies tracked', 'value': str(CompetencyRating.objects.filter(owner_id=uid).count()), 'href': '/dashboard/competency-mapping'},
                 ],
                 'nine_box': nine_box,
+                'flags': {
+                    'overdue_goals': overdue_goals,
+                },
             }
         )

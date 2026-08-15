@@ -409,6 +409,10 @@ class PayrollBenefitsDashboardSummaryView(APIView):
         needs_review = runs.filter(status='Needs review').count()
         pending_claims = claims.filter(status__in=['Submitted', 'Under Review']).count()
         active_enrollments = enrollments.filter(status='Enrolled').count()
+        discrepancies_flagged = runs.filter(discrepancy_flagged=True).count()
+        overdue_compliance = ComplianceEvent.objects.filter(
+            owner_id=uid, completed=False, due_date__lt=timezone.now().date()
+        ).count()
         total_benefit_cost = sum(
             (e.plan.employer_cost for e in enrollments.filter(status='Enrolled').select_related('plan')),
             start=0,
@@ -437,6 +441,10 @@ class PayrollBenefitsDashboardSummaryView(APIView):
                     {'label': 'Active benefit enrollments', 'value': str(active_enrollments), 'change': '', 'href': '/dashboard/benefits-enrollment'},
                     {'label': 'Pending claims', 'value': str(pending_claims), 'change': '', 'href': '/dashboard/claims'},
                 ],
+                'flags': {
+                    'discrepancies_flagged': discrepancies_flagged,
+                    'overdue_compliance': overdue_compliance,
+                },
                 'benefit_cost_by_type': [
                     {
                         'label': plan_type,

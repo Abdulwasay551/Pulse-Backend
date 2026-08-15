@@ -35,6 +35,9 @@ urlpatterns = [
     path('api/talent/', include('talent.urls')),
     # EVO-IT & Asset Management: fully built out, scoped per-user.
     path('api/it-assets/', include('it_assets.urls')),
+    # Bring-your-own-key AI provider integration (credentials, per-feature
+    # model selection, and the status gate every AI-touched page checks).
+    path('api/ai/', include('ai_core.urls')),
 ]
 
 if settings.DEBUG:

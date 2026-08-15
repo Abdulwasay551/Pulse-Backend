@@ -1,10 +1,13 @@
+import uuid
 from datetime import timedelta
 
 from django.db.models import Sum
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -49,6 +52,10 @@ from .serializers import (
     RequisitionSerializer,
 )
 
+def _escape_ics(text):
+    return text.replace('\\', '\\\\').replace(';', '\\;').replace(',', '\\,').replace('\n', '\\n')
+
+
 def _resolve_client(owner_id, raw_value):
     return resolve_related(Client, owner_id, raw_value, match_fields=['name'], label='Client')
 
@@ -89,17 +96,18 @@ class ClientViewSet(CsvImportExportMixin, OwnedModelViewSet):
         'industry': 'Industry',
         'contact_name': 'Contact name',
         'contact_email': 'Contact email',
+        'contact_number': 'Contact number',
         'status': 'Status (Active, Prospect, or At risk)',
     }
     csv_required_fields = ['name']
-    csv_export_header = ['Name', 'Industry', 'Contact name', 'Contact email', 'Status']
-    csv_sample_row = ['Acme Corp', 'Manufacturing', 'Jordan Lee', 'jordan@acme.com', 'Active']
+    csv_export_header = ['Name', 'Industry', 'Contact name', 'Contact email', 'Contact number', 'Status']
+    csv_sample_row = ['Acme Corp', 'Manufacturing', 'Jordan Lee', 'jordan@acme.com', '+1 555-0100', 'Active']
 
     def get_csv_export_queryset(self):
         return self.get_queryset().order_by('name')
 
     def csv_export_row(self, c):
-        return [c.name, c.industry, c.contact_name, c.contact_email, c.status]
+        return [c.name, c.industry, c.contact_name, c.contact_email, c.contact_number, c.status]
 
     def perform_create(self, serializer):
         client = serializer.save(owner_id=owner_scope_id(self.request))
@@ -124,14 +132,31 @@ class RequisitionViewSet(CsvImportExportMixin, OwnedModelViewSet):
         'priority': 'Priority (High, Medium, or Low)',
         'status': 'Status (Open, Interviewing, Offer stage, On hold, or Filled)',
         'requirements': 'Requirements',
+        'salary_min': 'Salary min (USD)',
+        'salary_max': 'Salary max (USD)',
+        'location': 'Location',
+        'employment_type': 'Employment type (Full-time, Part-time, Contract, or Temporary)',
+        'headcount': 'Headcount',
+        'description': 'Description',
+        'hiring_manager': 'Hiring manager',
     }
     csv_required_fields = ['client', 'title']
     csv_field_parsers = {'client': _resolve_client}
-    csv_export_header = ['Client', 'Role title', 'Recruiter', 'Priority', 'Status', 'Posted', 'Candidates']
-    csv_sample_row = ['Acme Corp', 'Senior QA Engineer', 'Alex Rivera', 'High', 'Open', 'Python, React, 3+ years experience']
+    csv_export_header = [
+        'Client', 'Role title', 'Recruiter', 'Priority', 'Status', 'Salary min', 'Salary max', 'Location',
+        'Employment type', 'Headcount', 'Hiring manager', 'Posted', 'Candidates',
+    ]
+    csv_sample_row = [
+        'Acme Corp', 'Senior QA Engineer', 'Alex Rivera', 'High', 'Open', 'Python, React, 3+ years experience',
+        '90000', '120000', 'Remote (US)', 'Full-time', '1', 'Own the QA strategy for our flagship product.',
+        'Taylor Morgan',
+    ]
 
     def csv_export_row(self, r):
-        return [r.client.name, r.title, r.recruiter, r.priority, r.status, r.posted_at, r.candidates.count()]
+        return [
+            r.client.name, r.title, r.recruiter, r.priority, r.status, r.salary_min, r.salary_max, r.location,
+            r.employment_type, r.headcount, r.hiring_manager, r.posted_at, r.candidates.count(),
+        ]
 
     def perform_create(self, serializer):
         requisition = serializer.save(owner_id=owner_scope_id(self.request))
@@ -140,6 +165,16 @@ class RequisitionViewSet(CsvImportExportMixin, OwnedModelViewSet):
             f'New requisition opened: {requisition.title} at {requisition.client.name}',
             'neutral',
         )
+
+    def perform_update(self, serializer):
+        previous_status = serializer.instance.status
+        requisition = serializer.save()
+        if requisition.status != previous_status:
+            log_activity(
+                owner_scope_id(self.request),
+                f'{requisition.title} moved to {requisition.status}',
+                'primary' if requisition.status in ('Offer stage', 'Filled') else 'neutral',
+            )
 
 
 class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
@@ -153,20 +188,25 @@ class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
         'role': 'Current position',
         'email': 'Email',
         'phone': 'Phone',
+        'country': 'Country',
+        'city': 'City of application',
         'stage': 'Stage (Sourced, Interview, Offer, Placed, or Rejected)',
         'source': 'Source (LinkedIn, Referral, Job Board, Sourced, or Other)',
-        'current_salary': 'Current salary',
+        'current_salary': 'Current salary (USD)',
         'applied_at': 'Applied at (YYYY-MM-DD)',
     }
     csv_required_fields = ['name', 'role']
-    csv_export_header = ['Name', 'Role', 'Email', 'Phone', 'Stage', 'Source', 'Applied at', 'AI score']
-    csv_sample_row = ['Jamie Chen', 'QA Engineer', 'jamie.chen@example.com', '+1 555-0100', 'Sourced', 'LinkedIn', '75000', '2026-08-01']
+    csv_export_header = ['Name', 'Role', 'Email', 'Phone', 'Country', 'City', 'Stage', 'Source', 'Applied at', 'AI score']
+    csv_sample_row = [
+        'Jamie Chen', 'QA Engineer', 'jamie.chen@example.com', '+1 555-0100', 'United States', 'Austin',
+        'Sourced', 'LinkedIn', '75000', '2026-08-01',
+    ]
 
     def get_csv_export_queryset(self):
         return self.get_queryset().order_by('name')
 
     def csv_export_row(self, c):
-        return [c.name, c.role, c.email, c.phone, c.stage, c.source, c.applied_at, c.ai_score]
+        return [c.name, c.role, c.email, c.phone, c.country, c.city, c.stage, c.source, c.applied_at, c.ai_score]
 
     def perform_create(self, serializer):
         candidate = serializer.save(owner_id=owner_scope_id(self.request))
@@ -193,19 +233,30 @@ class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
     @action(detail=True, methods=['post'])
     def screen(self, request, pk=None):
         """Runs AI resume screening for this candidate against their linked
-        requisition's requirements (see recruit/ai_screening.py — a
-        heuristic scorer today, drop-in replaceable with a real LLM call
-        later)."""
+        requisition's requirements — real AI via ai_core if the org has
+        connected a provider, otherwise a 409 (the frontend's AiFeatureGate
+        is the primary UX guard; this is defense-in-depth against a stale
+        client or a direct API call bypassing it)."""
         candidate = self.get_object()
         requisition = candidate.requisition
-        score, notes = score_candidate(
+        result = score_candidate(
+            owner_scope_id(request),
             candidate.resume_text,
             requisition.title if requisition else '',
             requisition.requirements if requisition else '',
         )
-        candidate.ai_score = score
-        candidate.ai_score_notes = notes
-        candidate.save(update_fields=['ai_score', 'ai_score_notes', 'updated_at'])
+        if not result['configured']:
+            return Response(
+                {'detail': 'No AI provider connected for resume screening.', 'code': 'ai_not_configured'},
+                status=409,
+            )
+        candidate.ai_score = result['score']
+        candidate.ai_score_notes = result['notes']
+        candidate.ai_score_strengths = result['strengths']
+        candidate.ai_score_gaps = result['gaps']
+        candidate.save(
+            update_fields=['ai_score', 'ai_score_notes', 'ai_score_strengths', 'ai_score_gaps', 'updated_at']
+        )
         return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
 
@@ -325,12 +376,41 @@ class OnboardingTaskViewSet(viewsets.ModelViewSet):
     queryset = OnboardingTask.objects.select_related('onboarding').all()
     serializer_class = OnboardingTaskSerializer
     permission_classes = [IsAuthenticated, IsHR | IsRecruiter | IsITManagerTaskAccess]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         qs = self.queryset.filter(onboarding__owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'IT Manager'):
             qs = qs.filter(category='Device Assignment')
         return qs
+
+    @action(detail=True, methods=['get'])
+    def ics(self, request, pk=None):
+        """A downloadable .ics calendar invite for this task — used by
+        Orientation tasks ("send a calendar invite"). No Google Calendar
+        OAuth integration exists (nobody has provisioned credentials for
+        it), so this generates a standard calendar file instead, which
+        opens directly in Google Calendar/Outlook/Apple Calendar without
+        needing any API key."""
+        task = self.get_object()
+        event_date = task.due_date or timezone.now().date()
+        uid = f'{uuid.uuid4()}@pulse-hr'
+        ics_body = (
+            'BEGIN:VCALENDAR\r\n'
+            'VERSION:2.0\r\n'
+            'PRODID:-//Pulse//Onboarding//EN\r\n'
+            'BEGIN:VEVENT\r\n'
+            f'UID:{uid}\r\n'
+            f'DTSTAMP:{timezone.now().strftime("%Y%m%dT%H%M%SZ")}\r\n'
+            f'DTSTART;VALUE=DATE:{event_date.strftime("%Y%m%d")}\r\n'
+            f'SUMMARY:{_escape_ics(task.title)}\r\n'
+            f'DESCRIPTION:{_escape_ics(task.notes)}\r\n'
+            'END:VEVENT\r\n'
+            'END:VCALENDAR\r\n'
+        )
+        response = HttpResponse(ics_body, content_type='text/calendar')
+        response['Content-Disposition'] = f'attachment; filename="{task.title[:50]}.ics"'
+        return response
 
 
 class OffboardingViewSet(OwnedModelViewSet):
@@ -350,6 +430,7 @@ class OffboardingTaskViewSet(viewsets.ModelViewSet):
     queryset = OffboardingTask.objects.select_related('offboarding').all()
     serializer_class = OffboardingTaskSerializer
     permission_classes = [IsAuthenticated, IsHR | IsRecruiter | IsITManagerTaskAccess]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         qs = self.queryset.filter(offboarding__owner_id=owner_scope_id(self.request))
@@ -380,7 +461,7 @@ def _relative_time(dt):
 
 
 class DashboardSummaryView(APIView):
-    """EVO-Recruit's overview/analytics numbers, computed live from the
+    """Recruit's overview/analytics numbers, computed live from the
     user's own data — nothing here is stored/cached. "Revenue this month"
     reads from payroll_benefits.PayrollRun since placement-fee revenue is
     tracked as payroll, not as a Recruit-owned figure."""

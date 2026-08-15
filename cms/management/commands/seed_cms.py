@@ -34,7 +34,7 @@ PRODUCTS = [
     dict(
         sort_order=1,
         tag="PAYROLL",
-        name="EvoHR Payroll",
+        name="Pulse Payroll",
         short_description="Automated pay runs and invoicing for contractors, temps, and permanent placements.",
         long_description="Run contractor and permanent placement payroll without re-keying a single timesheet.",
         bullets=bullets(
@@ -52,7 +52,7 @@ PRODUCTS = [
     dict(
         sort_order=2,
         tag="TECH STAFFING",
-        name="EvoHR IT",
+        name="Pulse IT",
         short_description="A dedicated pipeline and skills matching layer built for technical and IT staffing desks.",
         long_description="A skills-matching layer purpose-built for technical and IT staffing desks under pressure to fill fast.",
         bullets=bullets(
@@ -66,7 +66,7 @@ PRODUCTS = [
     dict(
         sort_order=3,
         tag="BENEFITS",
-        name="EvoHR Benefits",
+        name="Pulse Benefits",
         short_description="Benefits enrollment and administration for placed and contract talent, handled for you.",
         long_description="Benefits enrollment and administration for placed and contract talent, without the paperwork chase.",
         bullets=bullets(
@@ -84,7 +84,7 @@ PRODUCTS = [
     dict(
         sort_order=4,
         tag="CLIENT PORTAL",
-        name="EvoHR Hire",
+        name="Pulse Hire",
         short_description="A branded hiring portal where clients raise requisitions and review candidates directly.",
         long_description="A branded portal where clients raise requisitions, review shortlists, and leave feedback — no email chains.",
         bullets=bullets(
@@ -102,7 +102,7 @@ PRODUCTS = [
     dict(
         sort_order=5,
         tag="GLOBAL MOBILITY",
-        name="EvoHR Mobility",
+        name="Pulse Mobility",
         short_description="Visa, relocation, and compliance tracking for cross-border and international placements.",
         long_description="Visa, relocation, and compliance tracking for placements that cross a border.",
         bullets=bullets(
@@ -121,7 +121,7 @@ PRODUCTS = [
 
 
 class Command(BaseCommand):
-    help = "Seed the CMS page tree, snippets, and site settings with EvoHR's current default copy."
+    help = "Seed the CMS page tree, snippets, and site settings with Pulse's current default copy."
 
     def handle(self, *args, **options):
         if HomePage.objects.exists():
@@ -144,7 +144,7 @@ class Command(BaseCommand):
             hero_heading_highlight="closing placements",
             hero_heading_post=", not chasing spreadsheets.",
             hero_subtitle=(
-                "EvoHR brings your candidates, clients, and open requisitions into one "
+                "Pulse brings your candidates, clients, and open requisitions into one "
                 "system of record — so your desk runs on data, not memory."
             ),
             hero_cta_primary_label="Book a Demo",
@@ -231,10 +231,10 @@ class Command(BaseCommand):
                     ("Asana", "asana"),
                 ]
             ],
-            suite_eyebrow="The EvoHR suite",
+            suite_eyebrow="The Pulse suite",
             suite_title="One platform, every part of the desk.",
             suite_subtitle="Start with the core CRM, then turn on the modules your agency actually needs.",
-            stats_heading="EvoHR makes closing placements effortless",
+            stats_heading="Pulse makes closing placements effortless",
             stats_items=[
                 ("stat", {"value": "100+", "label": "countries"}),
                 ("stat", {"value": "12,000+", "label": "recruiters"}),
@@ -324,7 +324,7 @@ class Command(BaseCommand):
                         "cta_label": "Start free trial",
                         "features": [
                             "Everything in Starter",
-                            "EvoHR Hire client portal",
+                            "Pulse Hire client portal",
                             "Contractor payroll & invoicing",
                             "Pipeline automation & sequences",
                             "Priority support",
@@ -354,7 +354,7 @@ class Command(BaseCommand):
                 for f, s, g, e in [
                     ("Candidates & clients CRM", "yes", "yes", "yes"),
                     ("Job pipeline & ATS", "yes", "yes", "yes"),
-                    ("Client hiring portal (EvoHR Hire)", "no", "yes", "yes"),
+                    ("Client hiring portal (Pulse Hire)", "no", "yes", "yes"),
                     ("Contractor payroll & invoicing", "no", "yes", "yes"),
                     ("Benefits administration", "no", "partial", "yes"),
                     ("IT / tech skill matching", "no", "partial", "yes"),
@@ -428,7 +428,7 @@ class Command(BaseCommand):
             eyebrow="USE CASES",
             heading="Built for how your desk actually works.",
             subtitle=(
-                "Four ways recruiting teams run their business on EvoHR — pick the shape "
+                "Four ways recruiting teams run their business on Pulse — pick the shape "
                 "that matches yours."
             ),
             cases=[
@@ -645,7 +645,7 @@ class Command(BaseCommand):
             slug="resources",
             eyebrow="RESOURCES",
             heading="Guides, playbooks, and help — all in one place.",
-            subtitle="Everything to get your desk running on EvoHR, and keep it running well.",
+            subtitle="Everything to get your desk running on Pulse, and keep it running well.",
             blog_posts=[
                 ("item", {"title": t, "meta": m})
                 for t, m in [
@@ -676,7 +676,7 @@ class Command(BaseCommand):
                     ("Connecting payroll to your bank provider", "6.7k views"),
                 ]
             ],
-            api_docs_title="Build on the EvoHR API",
+            api_docs_title="Build on the Pulse API",
             api_docs_description="REST endpoints for candidates, requisitions, placements, and payroll.",
             api_docs_snippet=(
                 'GET /v1/candidates/{id}\n'
@@ -697,7 +697,7 @@ class Command(BaseCommand):
 
         settings = SiteSettings.for_site(site)
         settings.footer_tagline = "The recruitment CRM for agencies that place people for a living."
-        settings.copyright_holder = "EvoHR, Inc. All rights reserved."
+        settings.copyright_holder = "Pulse, Inc. All rights reserved."
         settings.footer_columns = [
             (
                 "column",

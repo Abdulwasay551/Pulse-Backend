@@ -36,12 +36,12 @@ from .blocks import (
 
 
 class Product(index.Indexed, models.Model):
-    """One module in the EvoHR suite. Shared between the homepage suite cards
+    """One module in the Pulse suite. Shared between the homepage suite cards
     and the Solutions page deep-dive sections, so it's edited once."""
 
     sort_order = models.IntegerField(default=0)
     tag = models.CharField(max_length=40, help_text="e.g. CORE, PAYROLL, TECH STAFFING")
-    name = models.CharField(max_length=60, help_text="e.g. EvoHR Payroll")
+    name = models.CharField(max_length=60, help_text="e.g. Pulse Payroll")
     short_description = models.TextField(help_text="Shown on the homepage suite cards")
     long_description = models.TextField(blank=True, help_text="Shown on the Solutions page")
     bullets = StreamField(
@@ -123,7 +123,7 @@ class SiteSettings(BaseSiteSetting):
     footer_tagline = models.CharField(
         max_length=200, default="The recruitment CRM for agencies that place people for a living."
     )
-    copyright_holder = models.CharField(max_length=120, default="EvoHR, Inc. All rights reserved.")
+    copyright_holder = models.CharField(max_length=120, default="Pulse, Inc. All rights reserved.")
     footer_columns = StreamField([("column", FooterColumnBlock())], blank=True)
 
     cta_default_title = models.CharField(max_length=120, default="Put your desk on the record.")
@@ -170,7 +170,7 @@ class HomePage(HeadlessPreviewMixin, Page):
     hero_heading_highlight = models.CharField(max_length=60, default="closing placements")
     hero_heading_post = models.CharField(max_length=120, default=", not chasing spreadsheets.")
     hero_subtitle = models.TextField(
-        default="EvoHR brings your candidates, clients, and open requisitions into one system "
+        default="Pulse brings your candidates, clients, and open requisitions into one system "
         "of record — so your desk runs on data, not memory."
     )
     hero_cta_primary_label = models.CharField(max_length=40, default="Book a Demo")
@@ -196,7 +196,7 @@ class HomePage(HeadlessPreviewMixin, Page):
 
     trust_logos = StreamField([("logo", TrustLogoBlock())], blank=True)
 
-    suite_eyebrow = models.CharField(max_length=60, default="The EvoHR suite")
+    suite_eyebrow = models.CharField(max_length=60, default="The Pulse suite")
     suite_title = models.CharField(
         max_length=160, default="One platform, every part of the desk."
     )
@@ -205,7 +205,7 @@ class HomePage(HeadlessPreviewMixin, Page):
     )
 
     stats_heading = models.CharField(
-        max_length=200, default="EvoHR makes closing placements effortless"
+        max_length=200, default="Pulse makes closing placements effortless"
     )
     stats_items = StreamField([("stat", StatItemBlock())], blank=True)
     stats_cta_label = models.CharField(max_length=40, default="Book a demo")
@@ -372,7 +372,7 @@ class UseCasesPage(HeadlessPreviewMixin, Page):
     eyebrow = models.CharField(max_length=60, default="USE CASES")
     heading = models.CharField(max_length=160, default="Built for how your desk actually works.")
     subtitle = models.TextField(
-        default="Four ways recruiting teams run their business on EvoHR — pick the shape "
+        default="Four ways recruiting teams run their business on Pulse — pick the shape "
         "that matches yours."
     )
     cases = StreamField([("case", UseCaseBlock())], blank=True)
@@ -449,12 +449,12 @@ class ResourcesPage(HeadlessPreviewMixin, Page):
         max_length=160, default="Guides, playbooks, and help — all in one place."
     )
     subtitle = models.TextField(
-        default="Everything to get your desk running on EvoHR, and keep it running well."
+        default="Everything to get your desk running on Pulse, and keep it running well."
     )
     blog_posts = StreamField([("item", ResourceRowBlock())], blank=True)
     guides = StreamField([("item", ResourceRowBlock())], blank=True)
     help_articles = StreamField([("item", ResourceRowBlock())], blank=True)
-    api_docs_title = models.CharField(max_length=100, default="Build on the EvoHR API")
+    api_docs_title = models.CharField(max_length=100, default="Build on the Pulse API")
     api_docs_description = models.CharField(
         max_length=200,
         default="REST endpoints for candidates, requisitions, placements, and payroll.",

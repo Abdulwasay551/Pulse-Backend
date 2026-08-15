@@ -481,5 +481,9 @@ class PeopleDashboardSummaryView(APIView):
                     {'label': 'Pending promotions', 'value': str(pending_promotions), 'href': '/dashboard/promotions'},
                     {'label': 'Open surveys', 'value': str(open_surveys), 'href': '/dashboard/surveys'},
                 ],
+                'flags': {
+                    'pending_leave': pending_leave,
+                    'open_surveys': open_surveys,
+                },
             }
         )

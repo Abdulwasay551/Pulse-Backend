@@ -50,7 +50,7 @@ class EmployeeInviteView(APIView):
         )
         signup_link = f'{settings.FRONTEND_URL}/signup?invite={invite.token}'
         send_mail(
-            subject=f'You’re invited to join {profile.organization.name} on EvoHR',
+            subject=f'You’re invited to join {profile.organization.name} on Pulse',
             message=(
                 f'{employee.name}, you’ve been invited to set up your employee account for '
                 f'{profile.organization.name}.\n\nCreate your login here: {signup_link}\n\n'

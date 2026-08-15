@@ -29,6 +29,16 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-hf(e5bhp@+w)w5650!t
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DJANGO_DEBUG', 'True') == 'True'
 
+# Encrypts AI provider API keys at rest (ai_core.crypto) — deliberately a
+# separate key from SECRET_KEY (never reuse a signing key for encryption).
+# The dev default below is a real, valid Fernet key but is committed to the
+# repo, so it's exactly as "insecure by design for local dev only" as
+# SECRET_KEY's own default above; production sets a real one via env var.
+AI_CREDENTIAL_ENCRYPTION_KEY = os.getenv(
+    'AI_CREDENTIAL_ENCRYPTION_KEY',
+    'ZIsGf7tB8KCrj-l1N9b3VbsycF78V6nnYPEywQlcO1Q=' if DEBUG else '',
+)
+
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 # Vercel sets VERCEL_URL to the current deployment's hostname (production
@@ -63,7 +73,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'core',
 
-    # EvoHR product modules — each is its own Django app so a module's data
+    # Pulse product modules — each is its own Django app so a module's data
     # model stays independent of the others (see core for shared/
     # cross-cutting concerns: auth, ActivityLog, IsOwner permission).
     'recruit',
@@ -71,6 +81,7 @@ INSTALLED_APPS = [
     'people',
     'talent',
     'it_assets',
+    'ai_core',
 
     # Wagtail CMS
     'cms',
@@ -256,11 +267,11 @@ SIMPLE_JWT = {
     'UPDATE_LAST_LOGIN': True,
 }
 
-AUTH_COOKIE_NAME = 'evohr_refresh'
+AUTH_COOKIE_NAME = 'Pulse_refresh'
 # Non-httpOnly companion flag: middleware/client code can check *whether* a
 # session might exist (to redirect away from /login or /dashboard early)
 # without ever being able to read or forge the actual refresh token.
-AUTH_SESSION_FLAG_COOKIE_NAME = 'evohr_has_session'
+AUTH_SESSION_FLAG_COOKIE_NAME = 'Pulse_has_session'
 AUTH_COOKIE_SAMESITE = os.getenv('DJANGO_AUTH_COOKIE_SAMESITE', 'Lax' if DEBUG else 'None')
 AUTH_COOKIE_SECURE = os.getenv('DJANGO_AUTH_COOKIE_SECURE', str(not DEBUG)) == 'True'
 
@@ -278,12 +289,12 @@ if os.getenv('DJANGO_EMAIL_HOST'):
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
-DEFAULT_FROM_EMAIL = os.getenv('DJANGO_DEFAULT_FROM_EMAIL', 'no-reply@evohr.app')
+DEFAULT_FROM_EMAIL = os.getenv('DJANGO_DEFAULT_FROM_EMAIL', 'no-reply@Pulse.app')
 # Where "Book a Demo" form submissions get emailed for someone to follow up.
 DEMO_REQUEST_NOTIFY_EMAIL = os.getenv('DEMO_REQUEST_NOTIFY_EMAIL', '')
 
 # Wagtail
-WAGTAIL_SITE_NAME = 'EvoHR CMS'
+WAGTAIL_SITE_NAME = 'Pulse CMS'
 WAGTAILADMIN_BASE_URL = os.getenv('WAGTAILADMIN_BASE_URL', 'http://localhost:8000')
 WAGTAIL_APPEND_SLASH = False
 
@@ -301,8 +312,8 @@ WAGTAIL_HEADLESS_PREVIEW = {
 
 # Unfold (theming django.contrib.admin, kept separate from the Wagtail CMS admin at /cms/)
 UNFOLD = {
-    'SITE_TITLE': 'EvoHR Admin',
-    'SITE_HEADER': 'EvoHR',
+    'SITE_TITLE': 'Pulse Admin',
+    'SITE_HEADER': 'Pulse',
     'SITE_SYMBOL': 'business_center',
     'SHOW_HISTORY': True,
     'SHOW_VIEW_ON_SITE': True,

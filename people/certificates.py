@@ -31,7 +31,7 @@ def render_recognition_certificate(recognition) -> bytes:
 
     c.setFillColor(_ACCENT)
     c.setFont('Helvetica', 13)
-    c.drawCentredString(width / 2, height - 1.3 * inch, 'EvoHR')
+    c.drawCentredString(width / 2, height - 1.3 * inch, 'Pulse')
 
     c.setFillColor(_PRIMARY)
     c.setFont('Helvetica-Bold', 32)

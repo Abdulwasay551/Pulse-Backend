@@ -148,7 +148,7 @@ class ForgotPasswordView(APIView):
             token = default_token_generator.make_token(user)
             reset_link = f'{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}'
             send_mail(
-                subject='Reset your EvoHR password',
+                subject='Reset your Pulse password',
                 message=(
                     f'Someone asked to reset the password for this account.\n\n'
                     f'Reset it here: {reset_link}\n\n'

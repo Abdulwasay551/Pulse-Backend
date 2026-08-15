@@ -1,3 +1,5 @@
+from datetime import date
+
 from rest_framework import serializers
 
 from core.permissions import owner_scope_id
@@ -26,7 +28,7 @@ class ClientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Client
         fields = [
-            'id', 'name', 'industry', 'contact_name', 'contact_email', 'status',
+            'id', 'name', 'industry', 'contact_name', 'contact_email', 'contact_number', 'status',
             'open_roles', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
@@ -38,17 +40,23 @@ class ClientSerializer(serializers.ModelSerializer):
 class RequisitionSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source='client.name', read_only=True)
     candidates_count = serializers.SerializerMethodField()
+    days_open = serializers.SerializerMethodField()
 
     class Meta:
         model = Requisition
         fields = [
             'id', 'client', 'client_name', 'title', 'recruiter', 'priority', 'status',
-            'requirements', 'posted_at', 'candidates_count', 'created_at', 'updated_at',
+            'requirements', 'salary_min', 'salary_max', 'location', 'employment_type', 'headcount',
+            'description', 'hiring_manager', 'posted_at', 'days_open', 'candidates_count',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'posted_at', 'created_at', 'updated_at']
 
     def get_candidates_count(self, obj):
         return obj.candidates.count()
+
+    def get_days_open(self, obj):
+        return (date.today() - obj.posted_at).days
 
     def validate_client(self, client):
         request = self.context['request']
@@ -65,16 +73,17 @@ class CandidateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Candidate
         fields = [
-            'id', 'name', 'initials', 'role', 'email', 'phone', 'client', 'client_name',
+            'id', 'name', 'initials', 'role', 'email', 'phone', 'country', 'city', 'client', 'client_name',
             'requisition', 'requisition_title', 'stage', 'source', 'current_salary', 'applied_at', 'placed_at',
-            'resume_file', 'resume_text', 'ai_score', 'ai_score_notes', 'portal_token',
-            'created_at', 'updated_at',
+            'resume_file', 'resume_text', 'ai_score', 'ai_score_notes', 'ai_score_strengths', 'ai_score_gaps',
+            'portal_token', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             # applied_at is writable (defaults to today when omitted) — both
             # regular entry and CSV import need to be able to log a
             # candidate's real historical application date, not just "now".
-            'id', 'placed_at', 'ai_score', 'ai_score_notes', 'portal_token', 'created_at', 'updated_at',
+            'id', 'placed_at', 'ai_score', 'ai_score_notes', 'ai_score_strengths', 'ai_score_gaps',
+            'portal_token', 'created_at', 'updated_at',
         ]
 
     def get_initials(self, obj):
@@ -162,7 +171,10 @@ class BackgroundCheckSerializer(serializers.ModelSerializer):
 class OnboardingTaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = OnboardingTask
-        fields = ['id', 'onboarding', 'category', 'title', 'status', 'due_date', 'notes', 'created_at']
+        fields = [
+            'id', 'onboarding', 'category', 'title', 'status', 'due_date', 'notes',
+            'document', 'extra_fields', 'created_at',
+        ]
         read_only_fields = ['id', 'created_at']
 
     def validate_onboarding(self, onboarding):
@@ -200,7 +212,10 @@ class OnboardingSerializer(serializers.ModelSerializer):
 class OffboardingTaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = OffboardingTask
-        fields = ['id', 'offboarding', 'category', 'title', 'status', 'due_date', 'notes', 'created_at']
+        fields = [
+            'id', 'offboarding', 'category', 'title', 'status', 'due_date', 'notes',
+            'document', 'extra_fields', 'created_at',
+        ]
         read_only_fields = ['id', 'created_at']
 
     def validate_offboarding(self, offboarding):
