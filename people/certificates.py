@@ -7,9 +7,9 @@ from reportlab.pdfgen import canvas
 
 # Matches the app's own brand tokens exactly (frontend/src/app/globals.css
 # --primary / --primary-light / --ink / --ink-soft) rather than a guess.
-_PRIMARY = HexColor('#4a2e82')
-_ACCENT = HexColor('#4d6fe0')
-_INK = HexColor('#211a2e')
+_PRIMARY = HexColor('#ff6b35')
+_ACCENT = HexColor('#73b6c4')
+_INK = HexColor('#0a2e36')
 _INK_SOFT = HexColor('#6d6478')
 
 

@@ -35,6 +35,7 @@ from .models import (
     Offboarding,
     OffboardingTask,
     OfferLetter,
+    OfferLetterTemplate,
     Onboarding,
     OnboardingTask,
     Requisition,
@@ -47,6 +48,7 @@ from .serializers import (
     OffboardingSerializer,
     OffboardingTaskSerializer,
     OfferLetterSerializer,
+    OfferLetterTemplateSerializer,
     OnboardingSerializer,
     OnboardingTaskSerializer,
     RequisitionSerializer,
@@ -272,6 +274,19 @@ class CandidatePortalView(APIView):
     def get(self, request, token):
         candidate = get_object_or_404(Candidate, portal_token=token)
         return Response(CandidatePortalSerializer(candidate).data)
+
+
+class OfferLetterTemplateViewSet(OwnedModelViewSet):
+    queryset = OfferLetterTemplate.objects.select_related('client').all()
+    serializer_class = OfferLetterTemplateSerializer
+
+    def perform_create(self, serializer):
+        template = serializer.save(owner_id=owner_scope_id(self.request))
+        log_activity(
+            owner_scope_id(self.request),
+            f'Offer letter template saved: {template.role_title} at {template.client.name}',
+            'neutral',
+        )
 
 
 class OfferLetterViewSet(CsvImportExportMixin, OwnedModelViewSet):

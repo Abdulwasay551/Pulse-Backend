@@ -153,6 +153,25 @@ class Candidate(models.Model):
         super().save(*args, **kwargs)
 
 
+class OfferLetterTemplate(models.Model):
+    """A reusable offer-letter body a client can have on file per role, so
+    drafting a new offer is "pick a template, adjust the details" instead of
+    writing the letter from scratch every time."""
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='offer_letter_templates')
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='offer_letter_templates')
+    role_title = models.CharField(max_length=150)
+    body = models.TextField(help_text='The offer letter template content — used to pre-fill a new offer for this role.')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['client__name', 'role_title']
+
+    def __str__(self):
+        return f'{self.client.name} — {self.role_title}'
+
+
 class OfferLetter(models.Model):
     STATUS_CHOICES = [
         ('Draft', 'Draft'),
@@ -286,12 +305,22 @@ class Offboarding(models.Model):
         ('In Progress', 'In progress'),
         ('Completed', 'Completed'),
     ]
+    REHIRE_INTEREST_CHOICES = [
+        ('Not Contacted', 'Not contacted'),
+        ('Interested', 'Interested'),
+        ('Not Interested', 'Not interested'),
+        ('Rehired', 'Rehired'),
+    ]
 
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='offboardings')
     candidate = models.OneToOneField(Candidate, on_delete=models.CASCADE, related_name='offboarding')
     last_working_day = models.DateField()
     reason = models.CharField(max_length=200, blank=True)
     rehire_eligible = models.BooleanField(default=True)
+    # Structured alumni-pool tracking, on top of the free-form rehire_notes
+    # below — "more selections" for the Rehire & Alumni Pool view.
+    rehire_interest = models.CharField(max_length=20, choices=REHIRE_INTEREST_CHOICES, default='Not Contacted')
+    rehire_last_contacted = models.DateField(null=True, blank=True)
     # Free-form tracking for the Rehire & Alumni Pool view — conversations,
     # interest level, whether they've been reached out to again, etc.
     rehire_notes = models.TextField(blank=True)

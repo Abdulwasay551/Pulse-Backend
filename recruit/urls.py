@@ -9,6 +9,7 @@ from .views import (
     DashboardSummaryView,
     OffboardingTaskViewSet,
     OffboardingViewSet,
+    OfferLetterTemplateViewSet,
     OfferLetterViewSet,
     OnboardingTaskViewSet,
     OnboardingViewSet,
@@ -19,6 +20,7 @@ router = DefaultRouter()
 router.register('clients', ClientViewSet, basename='client')
 router.register('requisitions', RequisitionViewSet, basename='requisition')
 router.register('candidates', CandidateViewSet, basename='candidate')
+router.register('offer-letter-templates', OfferLetterTemplateViewSet, basename='offer-letter-template')
 router.register('offer-letters', OfferLetterViewSet, basename='offer-letter')
 router.register('background-checks', BackgroundCheckViewSet, basename='background-check')
 router.register('onboardings', OnboardingViewSet, basename='onboarding')

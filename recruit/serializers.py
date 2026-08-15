@@ -11,6 +11,7 @@ from .models import (
     Offboarding,
     OffboardingTask,
     OfferLetter,
+    OfferLetterTemplate,
     Onboarding,
     OnboardingTask,
     Requisition,
@@ -134,6 +135,20 @@ class CandidatePortalSerializer(serializers.ModelSerializer):
         return initials_for(obj.name)
 
 
+class OfferLetterTemplateSerializer(serializers.ModelSerializer):
+    client_name = serializers.CharField(source='client.name', read_only=True)
+
+    class Meta:
+        model = OfferLetterTemplate
+        fields = ['id', 'client', 'client_name', 'role_title', 'body', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def validate_client(self, client):
+        if client.owner_id != owner_scope_id(self.context['request']):
+            raise serializers.ValidationError("That client doesn't belong to you.")
+        return client
+
+
 class OfferLetterSerializer(serializers.ModelSerializer):
     candidate_detail = CandidateLiteSerializer(source='candidate', read_only=True)
 
@@ -233,7 +248,8 @@ class OffboardingSerializer(serializers.ModelSerializer):
         model = Offboarding
         fields = [
             'id', 'candidate', 'candidate_detail', 'last_working_day', 'reason', 'rehire_eligible',
-            'rehire_notes', 'status', 'tasks', 'progress', 'created_at', 'updated_at',
+            'rehire_interest', 'rehire_last_contacted', 'rehire_notes', 'status', 'tasks', 'progress',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
