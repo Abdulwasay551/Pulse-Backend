@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
+    'django_filters',
     'corsheaders',
     'core',
 
@@ -243,6 +244,20 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
+    ],
+    # Search (?search=) and ordering (?ordering=field,-other) are safe to
+    # enable globally — both backends are strict no-ops on a viewset that
+    # doesn't declare search_fields/ordering_fields, so this doesn't change
+    # any existing endpoint's behavior until that viewset opts in. Pagination
+    # is deliberately NOT set here (see core.pagination) — it changes a list
+    # endpoint's response shape from a bare array to an envelope, which would
+    # break every existing frontend caller at once if flipped on globally;
+    # it's applied one viewset at a time, in lockstep with the matching
+    # frontend page being updated to read the new shape.
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
     ],
 }
 
