@@ -60,7 +60,12 @@ class MyDashboardView(APIView):
         month_start = today.replace(day=1)
         soon = today + timedelta(days=7)
         attendance_today = AttendanceRecord.objects.filter(employee=employee, date=today).first()
-        goals = Goal.objects.filter(employee=employee).order_by('-created_at')[:10]
+        # Unsliced — goals_due_soon/active_goals below need to keep
+        # filtering/excluding on it; `goals` (sliced, for the serialized
+        # display list only) is derived from this further down, since a
+        # QuerySet can't be filtered again once a slice has been taken.
+        goals_qs = Goal.objects.filter(employee=employee).order_by('-created_at')
+        goals = goals_qs[:10]
         activity = ActivityLog.objects.filter(owner_id=profile.data_owner_id)[:6]
 
         # "MY PENDING TASKS" — every flagged item that's actually this
@@ -68,7 +73,7 @@ class MyDashboardView(APIView):
         # something at them individually (not org-wide counts).
         open_tickets = SupportTicket.objects.filter(employee=employee).exclude(status__in=['Resolved', 'Closed'])
         claims_in_review = BenefitClaim.objects.filter(employee=employee, status__in=['Submitted', 'Under Review'])
-        goals_due_soon = goals.filter(status__in=['Not Started', 'In Progress'], target_date__isnull=False, target_date__lte=soon)
+        goals_due_soon = goals_qs.filter(status__in=['Not Started', 'In Progress'], target_date__isnull=False, target_date__lte=soon)
         byod_flags = BYODCompliance.objects.filter(employee=employee, compliance_status='Non-Compliant')
 
         pending_tasks = (
@@ -127,7 +132,7 @@ class MyDashboardView(APIView):
             employee=employee, status='Approved', start_date__gte=month_start
         ).count()
         latest_payroll_run = PayrollRun.objects.filter(owner_id=profile.data_owner_id).first()
-        active_goals = goals.exclude(status='Completed')
+        active_goals = goals_qs.exclude(status='Completed')
         goal_progress = round(sum(g.progress for g in active_goals) / len(active_goals)) if active_goals else 0
 
         return Response(

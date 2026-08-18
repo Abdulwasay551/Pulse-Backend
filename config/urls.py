@@ -5,6 +5,7 @@ from django.urls import include, path
 from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
+from core.admin_impersonate_views import admin_impersonate
 from core.views import health, landing
 from cms.api import api_router
 
@@ -15,6 +16,11 @@ urlpatterns = [
 
     # Unfold-themed Django admin (for non-CMS models: users, and each module app's data)
     path('admin/', admin.site.urls),
+    # Linked from UserAdmin's "Impersonate" column — must sit outside
+    # admin.site.urls (not just another registered ModelAdmin view) so it
+    # can issue a real cross-domain redirect + cookie rather than render an
+    # admin change page.
+    path('admin-impersonate/<int:user_id>/', admin_impersonate, name='admin-impersonate'),
     # Wagtail CMS admin (separate surface, for editing marketing page content)
     path('cms/', include(wagtailadmin_urls)),
     path('documents/', include(wagtaildocs_urls)),

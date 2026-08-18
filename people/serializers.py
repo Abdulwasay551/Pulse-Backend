@@ -53,6 +53,7 @@ class EmployeeSerializer(serializers.ModelSerializer):
     manager_name = serializers.CharField(source='manager.name', read_only=True, default=None)
     direct_reports_count = serializers.SerializerMethodField()
     documents = EmployeeDocumentSerializer(many=True, read_only=True)
+    linked_user = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
@@ -60,7 +61,8 @@ class EmployeeSerializer(serializers.ModelSerializer):
             'id', 'name', 'initials', 'email', 'phone', 'job_title', 'department', 'client_name',
             'manager', 'manager_name', 'direct_reports_count', 'salary_type', 'location',
             'hire_date', 'permanent_date', 'status',
-            'monthly_salary', 'source_candidate', 'portal_token', 'documents', 'created_at', 'updated_at',
+            'monthly_salary', 'source_candidate', 'portal_token', 'documents', 'linked_user',
+            'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'portal_token', 'created_at', 'updated_at']
 
@@ -69,6 +71,16 @@ class EmployeeSerializer(serializers.ModelSerializer):
 
     def get_direct_reports_count(self, obj):
         return obj.direct_reports.count()
+
+    def get_linked_user(self, obj):
+        # Whether this employee already has a login, and which one — used
+        # by the "Manage login" modal to decide between "create a login"
+        # and "impersonate this user" (see core.impersonate_views).
+        account = obj.user_accounts.first()
+        if not account:
+            return None
+        profile = getattr(account, 'profile', None)
+        return {'id': account.id, 'username': account.username, 'role': profile.role if profile else None}
 
     def validate_manager(self, manager):
         if manager is not None:

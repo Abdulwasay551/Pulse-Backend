@@ -16,6 +16,12 @@ class Organization(models.Model):
     name = models.CharField(max_length=200)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='organizations_created')
     created_at = models.DateTimeField(auto_now_add=True)
+    # HQ city, e.g. "Lahore, Pakistan" — powers the dashboard banner's
+    # weather/region chips for HR/Admin and any other role with no
+    # people.Employee record of their own to read a location from (see
+    # core.banner_views.BannerInfoView). Free-text like Employee.location,
+    # geocoded the same way via core.weather.
+    hq_location = models.CharField(max_length=150, blank=True)
 
     def __str__(self):
         return self.name
@@ -59,6 +65,21 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f'{self.user.username} ({self.role})'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        # Every Employee-role self-service view (clock-in, goals, claims,
+        # etc. — see core.my_views._employee_profile_or_error) resolves
+        # "which employee is this login" via this field, so a role='Employee'
+        # profile with no employee link is silently broken: every one of
+        # those views 400s with a generic "not set up as an employee" error
+        # and there's no way for the user to self-diagnose why. Both real
+        # provisioning paths (RegisterSerializer's invite accept,
+        # EmployeeAccountCreateView) always set this together with the role,
+        # so the only way to reach this state is creating/editing a profile
+        # by hand in this admin — catch it here instead of at request time.
+        if self.role == 'Employee' and not self.employee_id:
+            raise ValidationError({'employee': 'Required when role is Employee — otherwise clock-in, goals, and every other self-service page will fail for this login.'})
 
     @property
     def data_owner_id(self):

@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.urls import reverse
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin, StackedInline
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.admin import GroupAdmin as BaseGroupAdmin
@@ -33,6 +35,20 @@ class UserAdmin(BaseUserAdmin, ModelAdmin):
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
     inlines = [UserProfileInline]
+    list_display = BaseUserAdmin.list_display + ('impersonate_link',)
+
+    def impersonate_link(self, obj):
+        # Deliberately the only entry point into impersonation — see
+        # core.admin_impersonate_views.admin_impersonate for what this
+        # actually does (mints a session for `obj`, redirects into the
+        # frontend already signed in as them). Blank for staff/superuser
+        # rows, same guard the view itself enforces.
+        if obj.is_staff or obj.is_superuser:
+            return '—'
+        url = reverse('admin-impersonate', args=[obj.id])
+        return format_html('<a class="button" href="{}" target="_blank">Impersonate</a>', url)
+
+    impersonate_link.short_description = 'Impersonate'
 
 
 @admin.register(Group)

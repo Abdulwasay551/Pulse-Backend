@@ -241,9 +241,20 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticatedOrReadOnly',
     ],
+    # JWT only — this API has no session-based auth to fall back to; the
+    # SPA runs entirely on the bearer token + httpOnly refresh cookie
+    # scheme in core/auth_views.py, and Django Admin's own session cookie
+    # lives on the same domain but authenticates admin.site.urls directly,
+    # never through DRF. SessionAuthentication was previously also listed
+    # here (DRF's own default recommendation) but that actively broke
+    # things whenever both cookies coexisted in one browser — e.g. an
+    # admin with /admin/ open in one tab and the SPA in another: DRF's
+    # SessionAuthentication would authenticate the *admin's* Django session
+    # against SPA API calls and enforce CSRF on them, 403ing requests
+    # (like /auth/refresh/) that never sent a CSRF token because they were
+    # never meant to need one.
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
     ],
     # Search (?search=) and ordering (?ordering=field,-other) are safe to
     # enable globally — both backends are strict no-ops on a viewset that

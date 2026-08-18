@@ -11,6 +11,7 @@ from .auth_views import (
     RegisterView,
     ResetPasswordView,
 )
+from .banner_views import BannerInfoView
 from .demo_views import DemoRequestCreateView
 from .health_views import OrgHealthView
 from .hr_views import EmployeeAccountCreateView, EmployeeInviteView, InviteDetailView
@@ -51,5 +52,6 @@ urlpatterns = [
     path('my/benefit-claims/', MyBenefitClaimsView.as_view(), name='my-benefit-claims'),
     path('my/support-tickets/', MySupportTicketsView.as_view(), name='my-support-tickets'),
     path('org-health/', OrgHealthView.as_view(), name='org-health'),
+    path('banner-info/', BannerInfoView.as_view(), name='banner-info'),
     path('', include(router.urls)),
 ]
