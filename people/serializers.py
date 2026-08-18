@@ -73,14 +73,16 @@ class EmployeeSerializer(serializers.ModelSerializer):
         return obj.direct_reports.count()
 
     def get_linked_user(self, obj):
-        # Whether this employee already has a login, and which one — used
-        # by the "Manage login" modal to decide between "create a login"
-        # and "impersonate this user" (see core.impersonate_views).
-        account = obj.user_accounts.first()
-        if not account:
+        # Whether this employee already has a login, and which one.
+        # `user_accounts` is the reverse of UserProfile.employee, so this
+        # is already a UserProfile — not a User, despite the name (that
+        # mismatch previously 500'd this serializer for every employee
+        # with a login by reaching for a non-existent `.username`/`.role`
+        # straight off it instead of going through `.user`).
+        profile = obj.user_accounts.first()
+        if not profile:
             return None
-        profile = getattr(account, 'profile', None)
-        return {'id': account.id, 'username': account.username, 'role': profile.role if profile else None}
+        return {'id': profile.user_id, 'username': profile.user.username, 'role': profile.role}
 
     def validate_manager(self, manager):
         if manager is not None:
