@@ -33,12 +33,15 @@ def _relative_time(dt):
 
 
 def _employee_profile_or_error(request):
-    """Every view in this module is Employee-role self-service — resolves
-    the requesting user's linked people.Employee record, or None (plus an
-    error Response to short-circuit with) if this login isn't set up as an
-    Employee account."""
+    """Every view in this module is self-service for any employee-linked
+    login — resolves the requesting user's linked people.Employee record,
+    or None (plus an error Response to short-circuit with) if this login
+    isn't set up as one. Employee and Contractor both qualify (Contractor
+    is "a restricted Employee variant" per the Control Hierarchy Matrix —
+    same self-service surface, narrower access elsewhere, enforced by
+    core.access_matrix on the module viewsets, not here)."""
     profile = getattr(request.user, 'profile', None)
-    if not profile or profile.role != 'Employee' or not profile.employee_id:
+    if not profile or profile.role not in ('Employee', 'Contractor') or not profile.employee_id:
         return None, Response({'detail': 'This account is not set up as an employee.'}, status=400)
     return profile, None
 

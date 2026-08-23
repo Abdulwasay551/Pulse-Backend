@@ -101,6 +101,21 @@ class IsRecruiter(BasePermission):
         return obj.owner_id == owner_scope_id(request)
 
 
+class IsAuditorReadOnly(BasePermission):
+    """Auditor: "read-everywhere, write-nowhere across all modules — a
+    compliance constraint, not a permission tier" (Control Hierarchy
+    Matrix, role definitions). Org-wide, not scoped to any department/team
+    — for viewsets/summary views where that blanket read grant is the
+    whole story; see core.access_matrix for rows where Auditor's access
+    needs to compose with other roles' finer-grained scoping instead."""
+
+    def has_permission(self, request, view):
+        return _role_is(request, 'Auditor') and request.method in SAFE_METHODS
+
+    def has_object_permission(self, request, view, obj):
+        return obj.owner_id == owner_scope_id(request)
+
+
 def _department_of(obj):
     """Most department-scoped models hang an `employee` FK off the row;
     Employee itself carries `department` directly."""

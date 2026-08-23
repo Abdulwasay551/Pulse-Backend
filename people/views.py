@@ -9,17 +9,31 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.access_matrix import matrix_permission, scoped_queryset
 from core.activity import log_activity
 from core.csv_io import CsvImportExportMixin, resolve_employee
 from core.permissions import (
+    IsAuditorReadOnly,
     IsDepartmentHeadCreateOnly,
     IsFinanceAdminReadOnly,
     IsDepartmentHeadReadOnly,
     IsHR,
     IsOwner,
     _role_is,
+    is_hr_or_legacy,
     owner_scope_id,
 )
+
+# Roles the Control Hierarchy Matrix gives broad (non-self-scoped) read
+# access to a resource — get_queryset methods below skip straight to
+# "everything in the tenant" for these rather than routing through
+# scoped_queryset, since that helper's job is narrowing to "own
+# record"/"own team", not broadening.
+_BROAD_READ_ROLES = ('IT Manager', 'Finance Admin', 'Auditor', 'Recruiter')
+
+
+def _has_broad_read(request):
+    return any(_role_is(request, r) for r in _BROAD_READ_ROLES)
 
 from .certificates import render_recognition_certificate
 from .models import (
@@ -50,7 +64,16 @@ from .serializers import (
 class EmployeeViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     queryset = Employee.objects.select_related('manager').prefetch_related('documents').all()
     serializer_class = EmployeeSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+    # Employee Database (+ Organizational Chart, which reads off this same
+    # data): IT Manager/Finance Admin/Auditor/Recruiter get org-wide read,
+    # Manager sees their own team, Employee/Contractor see + edit their own
+    # record (`self_scope_field='id'` since Employee *is* the employee row).
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner
+        | IsDepartmentHeadReadOnly
+        | matrix_permission(self_scope_field='id', ita='R', fa='R', aud='R', mgr='R*', rec='R', emp='RW*', con='RW*'),
+    ]
 
     csv_filename = 'employees'
     csv_activity_label = 'employees'
@@ -89,9 +112,13 @@ class EmployeeViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(department=self.request.user.profile.department)
-        return qs
+            return qs.filter(department=self.request.user.profile.department)
+        if _has_broad_read(self.request):
+            return qs
+        return scoped_queryset(self.request, qs, self_scope_field='id', mgr='R*', emp='RW*', con='RW*')
 
     def perform_create(self, serializer):
         employee = serializer.save(owner_id=owner_scope_id(self.request))
@@ -106,11 +133,19 @@ class EmployeeDocumentViewSet(viewsets.ModelViewSet):
 
     queryset = EmployeeDocument.objects.select_related('employee').all()
     serializer_class = EmployeeDocumentSerializer
-    permission_classes = [IsAuthenticated, IsHR]
+    # "Employee Database (incl. ESS + Documents)" is one matrix row — same
+    # codes as EmployeeViewSet above.
+    permission_classes = [
+        IsAuthenticated,
+        IsHR | matrix_permission(owner_getter=lambda obj: obj.employee.owner_id, ita='R', fa='R', aud='R', mgr='R*', rec='R', emp='RW*', con='RW*'),
+    ]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
-        return self.queryset.filter(employee__owner_id=owner_scope_id(self.request))
+        qs = self.queryset.filter(employee__owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request) or _has_broad_read(self.request):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='R*', emp='RW*', con='RW*')
 
 
 class EmployeePortalView(APIView):
@@ -148,7 +183,20 @@ class AttendanceRecordViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = AttendanceRecord.objects.select_related('employee').all()
     serializer_class = AttendanceRecordSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdminReadOnly | IsDepartmentHeadReadOnly]
+    # This one viewset covers both the matrix's "Clock-in/Clock-out
+    # Tracking" and "Overtime Tracking" rows (they're the same model here,
+    # split only by a ?view= query param on the frontend) — codes below are
+    # the union of both rows per role. Employee/Contractor's actual
+    # clock-in/out already goes through the dedicated /my/clock-in|out/
+    # endpoints (core/my_views.py), so R* here just covers viewing their
+    # own history; Manager gets RW* to cover approving/adjusting their
+    # team's overtime (row 2's RW*/A*), which slightly over-grants write on
+    # raw clock times too — an accepted approximation given the shared
+    # model.
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsFinanceAdminReadOnly | IsDepartmentHeadReadOnly | matrix_permission(aud='R', mgr='RW*', emp='R*', con='R*'),
+    ]
 
     csv_filename = 'attendance-records'
     csv_activity_label = 'attendance records'
@@ -170,9 +218,13 @@ class AttendanceRecordViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Finance Admin'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='RW*', emp='R*', con='R*')
 
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
@@ -184,7 +236,10 @@ class ShiftViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = Shift.objects.select_related('employee').all()
     serializer_class = ShiftSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadReadOnly | matrix_permission(aud='R', mgr='RW*', emp='R*', con='R*'),
+    ]
 
     csv_filename = 'shifts'
     csv_activity_label = 'shifts'
@@ -205,9 +260,11 @@ class ShiftViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        return scoped_queryset(self.request, qs, mgr='RW*', emp='R*', con='R*')
 
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
@@ -221,7 +278,14 @@ class LeaveRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = LeaveRequest.objects.select_related('employee').all()
     serializer_class = LeaveRequestSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadCreateOnly]
+    # Employee/Contractor get real self-service here (create + view their
+    # own time-off requests) — Manager's 'A*' covers approving their team's
+    # (see _covers: Approve implies read+write, gated to own team by the
+    # matrix engine's MGR handling).
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadCreateOnly | matrix_permission(aud='R', mgr='A*', emp='RW*', con='RW*'),
+    ]
 
     csv_filename = 'time-off'
     csv_activity_label = 'time off requests'
@@ -244,15 +308,26 @@ class LeaveRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Finance Admin'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='A*', emp='RW*', con='RW*')
 
     def perform_create(self, serializer):
         if _role_is(self.request, 'Department Head'):
             employee = serializer.validated_data['employee']
             if employee.department != self.request.user.profile.department:
                 raise PermissionDenied("That employee isn't in your department.")
+        profile = getattr(self.request.user, 'profile', None)
+        if profile and profile.role in ('Employee', 'Contractor'):
+            # Self-service: can only ever file a leave request for
+            # themselves, whatever `employee` was submitted.
+            if not profile.employee_id:
+                raise PermissionDenied('Your account has no linked employee record.')
+            serializer.validated_data['employee'] = profile.employee
         serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
@@ -276,7 +351,13 @@ def _parse_questions(owner_id, raw_value):
 class SurveyViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     queryset = Survey.objects.prefetch_related('responses__employee').all()
     serializer_class = SurveySerializer
-    permission_classes = [IsAuthenticated, IsOwner]
+    # The matrix's "Surveys"/"Pulse Checks" rows are about *responding*
+    # (SurveyResponseViewSet below carries the real EMP/CON grant) — this
+    # read-only Auditor/Employee/Contractor access here is just so a
+    # self-service "what can I answer" view has something to list; there's
+    # no dedicated employee-facing survey-taking screen yet, only the API
+    # support for one.
+    permission_classes = [IsAuthenticated, IsOwner | matrix_permission(aud='R', mgr='R', emp='R', con='R')]
 
     csv_filename = 'surveys'
     csv_activity_label = 'surveys'
@@ -309,19 +390,42 @@ class SurveyResponseViewSet(viewsets.ModelViewSet):
 
     queryset = SurveyResponse.objects.select_related('employee', 'survey').all()
     serializer_class = SurveyResponseSerializer
-    permission_classes = [IsAuthenticated, IsHR | IsDepartmentHeadReadOnly]
+    # Employee/Contractor get 'W*' — write (submit) their own response,
+    # deliberately not read-back, matching the matrix's literal "Write
+    # Only" for these two rows (Surveys/Pulse Checks) rather than 'RW*'.
+    # Manager reads their team's responses ('R', not starred in the doc,
+    # but MGR is always team-scoped regardless — see access_matrix).
+    permission_classes = [
+        IsAuthenticated,
+        IsHR
+        | IsDepartmentHeadReadOnly
+        | matrix_permission(owner_getter=lambda obj: obj.survey.owner_id, aud='R', mgr='R', emp='W*', con='W*'),
+    ]
 
     def get_queryset(self):
         qs = self.queryset.filter(survey__owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        return scoped_queryset(self.request, qs, mgr='R', emp='W*', con='W*')
+
+    def perform_create(self, serializer):
+        profile = getattr(self.request.user, 'profile', None)
+        if profile and profile.role in ('Employee', 'Contractor'):
+            if not profile.employee_id:
+                raise PermissionDenied('Your account has no linked employee record.')
+            serializer.validated_data['employee'] = profile.employee
+        serializer.save()
 
 
 class RecognitionViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     queryset = Recognition.objects.select_related('employee').all()
     serializer_class = RecognitionSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadReadOnly | matrix_permission(aud='R', mgr='RW', emp='RW*', con='R*'),
+    ]
 
     csv_filename = 'recognitions'
     csv_activity_label = 'recognitions'
@@ -344,9 +448,11 @@ class RecognitionViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        return scoped_queryset(self.request, qs, mgr='RW', emp='RW*', con='R*')
 
     def perform_create(self, serializer):
         recognition = serializer.save(owner_id=owner_scope_id(self.request))
@@ -370,7 +476,13 @@ class PromotionRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = PromotionRequest.objects.select_related('employee').all()
     serializer_class = PromotionRequestSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadCreateOnly]
+    # Manager initiates + first-approves for their own team ('W*/A*' in the
+    # doc, both covered by matrix_permission treating 'A' as read+write);
+    # Employee only ever reads their own; Contractor gets none at all.
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadCreateOnly | matrix_permission(aud='R', mgr='A*', emp='R*'),
+    ]
 
     csv_filename = 'promotion-requests'
     csv_activity_label = 'promotion requests'
@@ -399,15 +511,23 @@ class PromotionRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Finance Admin') or _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='A*', emp='R*')
 
     def perform_create(self, serializer):
+        from core.access_matrix import is_manager_of
+
+        employee = serializer.validated_data['employee']
         if _role_is(self.request, 'Department Head'):
-            employee = serializer.validated_data['employee']
             if employee.department != self.request.user.profile.department:
                 raise PermissionDenied("That employee isn't in your department.")
+        elif not is_hr_or_legacy(self.request) and not is_manager_of(self.request, employee.id):
+            raise PermissionDenied("You can only request a promotion/transfer for someone on your team.")
         serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
@@ -433,7 +553,7 @@ class PeopleDashboardSummaryView(APIView):
     """EVO-People's overview numbers, computed live from the user's own
     employee rows — nothing here is stored/cached."""
 
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsAuditorReadOnly]
 
     def get(self, request):
         uid = owner_scope_id(request)

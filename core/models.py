@@ -47,6 +47,14 @@ class UserProfile(models.Model):
         ('Finance Admin', 'Finance Admin'),
         ('Department Head', 'Department Head'),
         ('Recruiter', 'Recruiter'),
+        # Added for the Control Hierarchy Matrix rollout — Auditor is
+        # read-everywhere/write-nowhere (a compliance constraint, not a
+        # capability tier); Contractor is a narrower Employee variant with
+        # no HR/finance/talent admin screens. Both use `employee` the same
+        # way Employee does (see clean() below) — see core.access_matrix
+        # for how a role maps to a matrix column.
+        ('Auditor', 'Auditor'),
+        ('Contractor', 'Contractor'),
     ]
 
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='profile')
@@ -78,8 +86,8 @@ class UserProfile(models.Model):
         # EmployeeAccountCreateView) always set this together with the role,
         # so the only way to reach this state is creating/editing a profile
         # by hand in this admin — catch it here instead of at request time.
-        if self.role == 'Employee' and not self.employee_id:
-            raise ValidationError({'employee': 'Required when role is Employee — otherwise clock-in, goals, and every other self-service page will fail for this login.'})
+        if self.role in ('Employee', 'Contractor') and not self.employee_id:
+            raise ValidationError({'employee': f'Required when role is {self.role} — otherwise clock-in, goals, and every other self-service page will fail for this login.'})
 
     @property
     def data_owner_id(self):

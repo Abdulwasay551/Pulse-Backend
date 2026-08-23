@@ -8,10 +8,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.access_matrix import matrix_permission, scoped_queryset
 from core.activity import log_activity
 from core.csv_io import CsvImportExportMixin, resolve_employee, resolve_related
 from core.permissions import (
+    IsAuditorReadOnly,
     IsDepartmentHeadCreateOnly,
+    IsFinanceAdminReadOnly,
     IsITManager,
     IsOwner,
     _role_is,
@@ -47,9 +50,25 @@ class OwnedItAssetsViewSet(viewsets.ModelViewSet):
 
 
 class AssetViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
+    """Covers three matrix rows that all live on this one model/viewset —
+    Device Provisioning (assigned_to/assigned_at), Asset Inventory Tracking
+    (the row itself), and Warranty Tracking (a computed view over
+    warranty_expiry, not a separate model). Their codes are identical for
+    Finance Admin/Auditor/Employee/Contractor (fa='R', aud='R', emp/con='R*'
+    — own assigned device only), so the union below serves all three; the
+    one place they diverge is Warranty Tracking having no HRA/EMP/CON access
+    at all, which this shared viewset doesn't distinguish (same accepted
+    approximation as AttendanceRecordViewSet's clock-in/overtime union in
+    people/views.py). `self_scope_field='assigned_to_id'` since Asset links
+    to an employee via `assigned_to`, not `employee`."""
+
     queryset = Asset.objects.select_related('assigned_to').all()
     serializer_class = AssetSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsITManager | matrix_permission(self_scope_field='assigned_to_id', fa='R', aud='R', emp='R*', con='R*'),
+    ]
 
     csv_filename = 'assets'
     csv_activity_label = 'assets'
@@ -79,6 +98,12 @@ class AssetViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
             a.status, a.assigned_to.name if a.assigned_to else '', a.is_byod,
         ]
 
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Employee') or _role_is(self.request, 'Contractor'):
+            return scoped_queryset(self.request, qs, self_scope_field='assigned_to_id', emp='R*', con='R*')
+        return qs
+
     def perform_update(self, serializer):
         was_assigned = serializer.instance.assigned_to_id
         instance = serializer.save()
@@ -93,11 +118,32 @@ class SupportTicketViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """Department Head may create/list/retrieve a support ticket ("request
     IT help") for their own department's employees — never update/resolve
     it themselves; that absence of an update right is the approval gate
-    (only HR/IT Manager act on what a Department Head creates)."""
+    (only HR/IT Manager act on what a Department Head creates).
+
+    Matrix row "Support Ticket Management": Auditor gets read-only;
+    Employee/Contractor get 'W*' (submit + edit their own ticket, no
+    read-back through this endpoint — same "write only" pattern as
+    SurveyResponseViewSet in people/views.py). This is the same self-service
+    action MySupportTicketsView (core/my_views.py) already exposes for
+    Employee-role logins (submit + list own tickets) — but that view is
+    hard-gated to `profile.role == 'Employee'` and doesn't recognize
+    Contractor at all, so Contractor logins can only reach this grant via
+    this main viewset, not the dedicated /my/ endpoint. Not changed here
+    (out of scope: core/my_views.py isn't under it_assets/) — flagged for
+    the user to decide whether to extend that view to Contractor too.
+
+    NOTE — matrix says HRA='-' (no access at all) for this row, but IsOwner
+    already grants HR/legacy accounts full CRUD here today; per the
+    "purely additive, never narrow" rule that existing HR access is left
+    exactly as-is. Flagged in the report, not silently narrowed.
+    """
 
     queryset = SupportTicket.objects.select_related('employee', 'asset').all()
     serializer_class = SupportTicketSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsITManager | IsDepartmentHeadCreateOnly]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsITManager | IsDepartmentHeadCreateOnly | matrix_permission(aud='R', emp='W*', con='W*'),
+    ]
 
     csv_filename = 'support-tickets'
     csv_activity_label = 'support tickets'
@@ -121,7 +167,9 @@ class SupportTicketViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Employee') or _role_is(self.request, 'Contractor'):
+            return scoped_queryset(self.request, qs, emp='W*', con='W*')
         return qs
 
     def perform_create(self, serializer):
@@ -129,6 +177,14 @@ class SupportTicketViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
             employee = serializer.validated_data['employee']
             if employee.department != self.request.user.profile.department:
                 raise PermissionDenied("That employee isn't in your department.")
+        elif _role_is(self.request, 'Employee') or _role_is(self.request, 'Contractor'):
+            # Self-service: can only ever file a ticket for themselves,
+            # whatever `employee` was submitted (mirrors LeaveRequestViewSet
+            # in people/views.py).
+            profile = self.request.user.profile
+            if not profile.employee_id:
+                raise PermissionDenied('Your account has no linked employee record.')
+            serializer.validated_data['employee'] = profile.employee
         serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
@@ -140,11 +196,21 @@ class SupportTicketViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
 
 class AssetIncidentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
-    """Same create-only Department Head pattern as SupportTicketViewSet."""
+    """Same create-only Department Head pattern as SupportTicketViewSet.
+
+    Matrix row "Device Tracker": Finance Admin gets 'RW' here — the only
+    row in this whole module where Finance Admin has write access
+    (presumably cost/write-off entries against `cost`/`currency`), broad
+    (not self-scoped) same as their read elsewhere. Auditor 'R' broad;
+    Employee/Contractor 'R*' scoped to incidents on their own assigned
+    device."""
 
     queryset = AssetIncident.objects.select_related('employee', 'asset').all()
     serializer_class = AssetIncidentSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsITManager | IsDepartmentHeadCreateOnly]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsITManager | IsDepartmentHeadCreateOnly | matrix_permission(fa='RW', aud='R', emp='R*', con='R*'),
+    ]
 
     csv_filename = 'device-incidents'
     csv_activity_label = 'device incidents'
@@ -173,7 +239,9 @@ class AssetIncidentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Employee') or _role_is(self.request, 'Contractor'):
+            return scoped_queryset(self.request, qs, emp='R*', con='R*')
         return qs
 
     def perform_create(self, serializer):
@@ -188,10 +256,18 @@ class AssetRecoveryViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
     """Offboarding Recovery — marking a recovery Recovered also unassigns
     the underlying Asset back into the provisioning pool, so this is the
     single action that closes the loop between "employee is leaving" and
-    "device is back in stock"."""
+    "device is back in stock".
+
+    Matrix row "Offboarding Recovery": Finance Admin/Employee/Contractor all
+    get no access ('-'); only Auditor gets broad read-only, added below.
+    No get_queryset override needed — the shared OwnedItAssetsViewSet base
+    already returns the full owner-scoped queryset to anyone who clears
+    has_permission, which is exactly the (unstarred) access this row
+    grants Auditor."""
 
     queryset = AssetRecovery.objects.select_related('employee', 'asset').all()
     serializer_class = AssetRecoverySerializer
+    permission_classes = [IsAuthenticated, IsOwner | IsITManager | matrix_permission(aud='R')]
 
     csv_filename = 'asset-recoveries'
     csv_activity_label = 'asset recoveries'
@@ -229,8 +305,23 @@ class AssetRecoveryViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
 
 
 class BYODComplianceViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
+    """Matrix row "BYOD Security Policy": Finance Admin gets no access at
+    all here ('-', unlike the rest of this module where FA is at least
+    read-only); Auditor 'R' broad; Employee/Contractor 'R*' scoped to their
+    own device's compliance record."""
+
     queryset = BYODCompliance.objects.select_related('employee', 'asset').all()
     serializer_class = BYODComplianceSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsITManager | matrix_permission(aud='R', emp='R*', con='R*'),
+    ]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if _role_is(self.request, 'Employee') or _role_is(self.request, 'Contractor'):
+            return scoped_queryset(self.request, qs, emp='R*', con='R*')
+        return qs
 
     csv_filename = 'byod-compliance'
     csv_activity_label = 'BYOD compliance checks'
@@ -260,9 +351,14 @@ class BYODComplianceViewSet(CsvImportExportMixin, OwnedItAssetsViewSet):
 
 class ItAssetsDashboardSummaryView(APIView):
     """EVO-IT & Asset Management's overview numbers, computed live from the
-    user's own rows — nothing here is stored/cached."""
+    user's own rows — nothing here is stored/cached.
 
-    permission_classes = [IsAuthenticated, IsOwner | IsITManager]
+    Matrix row "Overview": Finance Admin and Auditor both get read-only
+    access, same composition pattern as PeopleDashboardSummaryView in
+    people/views.py (IsHR | IsAuditorReadOnly) — no queryset scoping is
+    needed since this is a pure aggregate view, not a ModelViewSet."""
+
+    permission_classes = [IsAuthenticated, IsOwner | IsITManager | IsFinanceAdminReadOnly | IsAuditorReadOnly]
 
     def get(self, request):
         uid = owner_scope_id(request)

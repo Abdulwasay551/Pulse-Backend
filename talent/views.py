@@ -6,8 +6,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.access_matrix import is_manager_of, matrix_permission, scoped_queryset
 from core.csv_io import CsvImportExportMixin, resolve_employee
 from core.permissions import (
+    IsAuditorReadOnly,
     IsDepartmentHeadAppraisalAccess,
     IsDepartmentHeadReadOnly,
     IsDepartmentHeadWrite,
@@ -15,6 +17,7 @@ from core.permissions import (
     IsOwner,
     IsRecruiter,
     _role_is,
+    is_hr_or_legacy,
     owner_scope_id,
 )
 from people.models import Employee
@@ -79,6 +82,14 @@ class DepartmentScopedTalentViewSet(OwnedTalentViewSet):
 class GoalViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     queryset = Goal.objects.select_related('employee').all()
     serializer_class = GoalSerializer
+    # Goal Setting & KPIs: Auditor reads org-wide; Manager gets real
+    # create/update for their own team's goals; Employee gets real
+    # read/write on their own (e.g. progress updates); Contractor reads
+    # only their own.
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadWrite | matrix_permission(aud='R', mgr='RW*', emp='RW*', con='R*'),
+    ]
 
     csv_filename = 'goals'
     csv_activity_label = 'goals'
@@ -99,6 +110,32 @@ class GoalViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     def csv_export_row(self, g):
         return [g.employee.name, g.title, g.section, g.description, g.target_date, g.status, g.progress]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Department Head') or _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='RW*', emp='RW*', con='R*')
+
+    def perform_create(self, serializer):
+        if _role_is(self.request, 'Department Head'):
+            employee = serializer.validated_data['employee']
+            if employee.department != self.request.user.profile.department:
+                raise PermissionDenied("That employee isn't in your department.")
+        profile = getattr(self.request.user, 'profile', None)
+        if profile and profile.role == 'Employee':
+            # Self-service: can only ever set/update goals for themselves,
+            # whatever `employee` was submitted.
+            if not profile.employee_id:
+                raise PermissionDenied('Your account has no linked employee record.')
+            serializer.validated_data['employee'] = profile.employee
+        elif not is_hr_or_legacy(self.request) and not _role_is(self.request, 'Department Head'):
+            # Manager (dynamic capability, not a stored role) creating a
+            # goal for someone on their team.
+            employee = serializer.validated_data.get('employee')
+            if employee and not is_manager_of(self.request, employee.id):
+                raise PermissionDenied('You can only set goals for someone on your team.')
+        serializer.save(owner_id=owner_scope_id(self.request))
+
 
 class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
     """Department Head may create/update while drafting/submitting an
@@ -108,7 +145,14 @@ class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
 
     queryset = Appraisal.objects.select_related('employee').all()
     serializer_class = AppraisalSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadAppraisalAccess]
+    # Performance Appraisals: Auditor reads org-wide; Manager gets
+    # create/update/approve for their own team ('RW*/A*' in the matrix —
+    # 'A*' alone covers both since the engine treats Approve as read+write);
+    # Employee/Contractor read only their own.
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadAppraisalAccess | matrix_permission(aud='R', mgr='A*', emp='R*', con='R*'),
+    ]
 
     csv_filename = 'appraisals'
     csv_activity_label = 'appraisals'
@@ -134,9 +178,13 @@ class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='A*', emp='R*', con='R*')
 
     def perform_create(self, serializer):
         if _role_is(self.request, 'Department Head'):
@@ -145,6 +193,12 @@ class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
                 raise PermissionDenied("That employee isn't in your department.")
             if serializer.validated_data.get('status') == 'Finalized':
                 raise PermissionDenied('Only HR or an Admin can finalize an appraisal.')
+        elif not is_hr_or_legacy(self.request) and not _role_is(self.request, 'Auditor'):
+            # Manager (dynamic capability) creating/drafting an appraisal
+            # for someone on their team.
+            employee = serializer.validated_data.get('employee')
+            if employee and not is_manager_of(self.request, employee.id):
+                raise PermissionDenied('You can only create an appraisal for someone on your team.')
         serializer.save(owner_id=owner_scope_id(self.request))
 
     def perform_update(self, serializer):
@@ -155,8 +209,17 @@ class AppraisalViewSet(CsvImportExportMixin, OwnedTalentViewSet):
 
 
 class CompetencyRatingViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
+    """Backs both "Competency Mapping of Employees" (Goals & Appraisal) and
+    "Skills & Competency Mapping" (Learning & Growth) — identical codes on
+    both matrix rows: Auditor org-wide read, Manager/Employee read-only
+    scoped to team/own record, Contractor no access."""
+
     queryset = CompetencyRating.objects.select_related('employee').all()
     serializer_class = CompetencyRatingSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadWrite | matrix_permission(aud='R', mgr='R*', emp='R*'),
+    ]
 
     csv_filename = 'competency-ratings'
     csv_activity_label = 'competency ratings'
@@ -174,10 +237,24 @@ class CompetencyRatingViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSe
     def csv_export_row(self, c):
         return [c.employee.name, c.competency, c.level, c.notes]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Department Head') or _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='R*', emp='R*')
+
 
 class CourseViewSet(CsvImportExportMixin, OwnedTalentViewSet):
+    """The training catalog itself has no per-employee ownership, so every
+    role the matrix grants Training & LMS access to just reads the whole
+    catalog (no self-scoping applies here — that's Enrollment's job)."""
+
     queryset = Course.objects.prefetch_related('enrollments').all()
     serializer_class = CourseSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | matrix_permission(aud='R', mgr='R', emp='R', con='R'),
+    ]
 
     csv_filename = 'courses'
     csv_activity_label = 'courses'
@@ -198,19 +275,46 @@ class CourseViewSet(CsvImportExportMixin, OwnedTalentViewSet):
 
 class EnrollmentViewSet(viewsets.ModelViewSet):
     """No IsOwner — Enrollment has no `owner` field of its own, scoped via
-    its parent Course's owner, same reasoning as EmployeeDocument."""
+    its parent Course's owner, same reasoning as EmployeeDocument. Training
+    & LMS: Auditor reads org-wide; Manager reads their team's enrollments
+    (unstarred 'R' in the matrix, but MGR is always team-scoped regardless
+    — see access_matrix); Employee/Contractor get real read/write on their
+    own enrollment (progress/completion updates)."""
 
     queryset = Enrollment.objects.select_related('employee', 'course').all()
     serializer_class = EnrollmentSerializer
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [
+        IsAuthenticated,
+        IsHR
+        | matrix_permission(owner_getter=lambda obj: obj.course.owner_id, aud='R', mgr='R', emp='RW*', con='RW*'),
+    ]
 
     def get_queryset(self):
-        return self.queryset.filter(course__owner_id=owner_scope_id(self.request))
+        qs = self.queryset.filter(course__owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='R', emp='RW*', con='RW*')
+
+    def perform_create(self, serializer):
+        profile = getattr(self.request.user, 'profile', None)
+        if profile and profile.role in ('Employee', 'Contractor'):
+            # Self-service: can only ever enroll/update progress for
+            # themselves, whatever `employee` was submitted.
+            if not profile.employee_id:
+                raise PermissionDenied('Your account has no linked employee record.')
+            serializer.validated_data['employee'] = profile.employee
+        serializer.save()
 
 
 class CareerPathViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     queryset = CareerPath.objects.select_related('employee').all()
     serializer_class = CareerPathSerializer
+    # Career Development Paths: Auditor org-wide read; Manager/Employee
+    # read-only scoped to team/own record; Contractor no access.
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadWrite | matrix_permission(aud='R', mgr='R*', emp='R*'),
+    ]
 
     csv_filename = 'career-paths'
     csv_activity_label = 'career paths'
@@ -230,6 +334,12 @@ class CareerPathViewSet(CsvImportExportMixin, DepartmentScopedTalentViewSet):
     def csv_export_row(self, c):
         return [c.employee.name, c.current_role, c.target_role, c.department, c.milestones, c.target_date]
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Department Head') or _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='R*', emp='R*')
+
 
 class SuccessionPlanViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     """View-only for Department Head — succession planning isn't in their
@@ -237,7 +347,12 @@ class SuccessionPlanViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = SuccessionPlan.objects.select_related('employee').all()
     serializer_class = SuccessionPlanSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsDepartmentHeadReadOnly]
+    # Succession Planning / 9-Box Grid: Auditor org-wide read; Manager
+    # read-only scoped to their team; Employee/Contractor get none at all.
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsDepartmentHeadReadOnly | matrix_permission(aud='R', mgr='R*'),
+    ]
 
     csv_filename = 'succession-plans'
     csv_activity_label = 'succession plans'
@@ -258,9 +373,13 @@ class SuccessionPlanViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
         if _role_is(self.request, 'Department Head'):
-            qs = qs.filter(employee__department=self.request.user.profile.department)
-        return qs
+            return qs.filter(employee__department=self.request.user.profile.department)
+        if _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='R*')
 
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
@@ -275,7 +394,11 @@ class RecruiterFeedbackViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'head', 'options']
     queryset = RecruiterFeedback.objects.select_related('employee').all()
     serializer_class = RecruiterFeedbackSerializer
-    permission_classes = [IsAuthenticated, IsRecruiter | IsHR]
+    # Recruiter Feedback: Auditor gets org-wide read on top of Recruiter's
+    # write access and HR's existing read (HR's "R" in the matrix is
+    # already enforced not by the permission class but by the
+    # perform_create role check below, unchanged).
+    permission_classes = [IsAuthenticated, IsRecruiter | IsHR | matrix_permission(aud='R')]
 
     csv_filename = 'recruiter-feedback'
     csv_activity_label = 'recruiter feedback notes'
@@ -306,29 +429,54 @@ class EmployeeScoreView(APIView):
     spec — see talent/scoring.py. Computed live from the employee's own
     goals + appraisals, nothing stored."""
 
-    permission_classes = [IsAuthenticated, IsHR | IsDepartmentHeadReadOnly]
+    # Value-Addition / Performance Scoring: Auditor org-wide read; Manager
+    # reads their own team's score; Employee reads only their own.
+    permission_classes = [
+        IsAuthenticated,
+        IsHR | IsDepartmentHeadReadOnly | matrix_permission(self_scope_field='id', aud='R', mgr='R*', emp='R*'),
+    ]
 
     def get(self, request, employee_id):
         employee = get_object_or_404(Employee, id=employee_id, owner_id=owner_scope_id(request))
         if _role_is(request, 'Department Head') and employee.department != request.user.profile.department:
             raise PermissionDenied("That employee isn't in your department.")
+        # This view fetches its object manually (not via get_object()), so
+        # DRF never runs matrix_permission's has_object_permission — do the
+        # equivalent "own record or own team" check by hand here.
+        if not is_hr_or_legacy(request) and not _role_is(request, 'Department Head') and not _role_is(request, 'Auditor'):
+            profile = getattr(request.user, 'profile', None)
+            is_self = bool(profile and profile.employee_id == employee.id)
+            if not is_self and not is_manager_of(request, employee.id):
+                raise PermissionDenied("You can only view your own or your team's performance score.")
         score, notes = compute_value_score(employee)
         return Response({'employee': employee.id, 'score': score, 'notes': notes})
 
 
 class TalentDashboardSummaryView(APIView):
     """EVO-Talent's overview numbers, computed live from the user's own
-    rows — nothing here is stored/cached."""
+    rows — nothing here is stored/cached. Overview row: Auditor sees the
+    org-wide numbers read-only; Manager/Employee see the same shape
+    narrowed to what they'd actually see on each underlying sub-page (each
+    collection below is scoped with that sub-module's own matrix codes,
+    not a blanket "Overview" code — e.g. Employee has zero access to
+    Succession Planning on its own page, so it stays zeroed out here too)."""
 
-    permission_classes = [IsAuthenticated, IsHR]
+    permission_classes = [IsAuthenticated, IsHR | IsAuditorReadOnly | matrix_permission(mgr='R*', emp='R*')]
 
     def get(self, request):
         uid = owner_scope_id(request)
-        goals = Goal.objects.filter(owner_id=uid)
-        appraisals = Appraisal.objects.filter(owner_id=uid)
-        courses = Course.objects.filter(owner_id=uid)
-        enrollments = Enrollment.objects.filter(course__owner_id=uid)
-        succession_plans = SuccessionPlan.objects.filter(owner_id=uid)
+        broad = is_hr_or_legacy(request) or _role_is(request, 'Auditor')
+
+        def scope(qs, **codes):
+            return qs if broad else scoped_queryset(request, qs, **codes)
+
+        goals = scope(Goal.objects.filter(owner_id=uid), mgr='RW*', emp='RW*', con='R*')
+        appraisals = scope(Appraisal.objects.filter(owner_id=uid), mgr='A*', emp='R*', con='R*')
+        courses = Course.objects.filter(owner_id=uid)  # catalog, not employee-scoped
+        enrollments = scope(Enrollment.objects.filter(course__owner_id=uid), mgr='R', emp='RW*', con='RW*')
+        succession_plans = scope(SuccessionPlan.objects.filter(owner_id=uid), mgr='R*')
+        career_paths = scope(CareerPath.objects.filter(owner_id=uid), mgr='R*', emp='R*')
+        competency_ratings = scope(CompetencyRating.objects.filter(owner_id=uid), mgr='R*', emp='R*')
 
         goals_in_progress = goals.filter(status='In Progress').count()
         goals_completed = goals.filter(status='Completed').count()
@@ -358,8 +506,8 @@ class TalentDashboardSummaryView(APIView):
                 'kpis': [
                     {'label': 'Course completion rate', 'value': f'{completion_rate}%', 'href': '/dashboard/learning'},
                     {'label': 'Ready-now successors', 'value': str(ready_now), 'href': '/dashboard/succession-planning'},
-                    {'label': 'Career paths mapped', 'value': str(CareerPath.objects.filter(owner_id=uid).count()), 'href': '/dashboard/career-paths'},
-                    {'label': 'Competencies tracked', 'value': str(CompetencyRating.objects.filter(owner_id=uid).count()), 'href': '/dashboard/competency-mapping'},
+                    {'label': 'Career paths mapped', 'value': str(career_paths.count()), 'href': '/dashboard/career-paths'},
+                    {'label': 'Competencies tracked', 'value': str(competency_ratings.count()), 'href': '/dashboard/competency-mapping'},
                 ],
                 'nine_box': nine_box,
                 'flags': {

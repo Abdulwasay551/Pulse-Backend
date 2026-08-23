@@ -8,26 +8,39 @@ from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.access_matrix import has_any_reports, matrix_permission, scoped_queryset
 from core.activity import log_activity
-from core.csv_io import CsvImportExportMixin, resolve_related
 from core.models import ActivityLog
+from core.csv_io import CsvImportExportMixin, resolve_related
 from core.permissions import (
+    IsAuditorReadOnly,
     IsDepartmentHeadReadOnly,
     IsDepartmentHeadRequisitionAccess,
+    IsFinanceAdminReadOnly,
     IsHR,
     IsITManagerTaskAccess,
     IsOwner,
     IsRecruiter,
+    is_hr_or_legacy,
     _role_is,
     owner_scope_id,
 )
 from payroll_benefits.models import PayrollRun
 
 from .ai_screening import score_candidate
+from .permissions import (
+    IsFinanceAdminHardwareClearanceReadOnly,
+    IsITManagerAccessStatusAccess,
+    IsSelfOnboardingTaskAccess,
+    _my_candidate_id,
+    manager_broad_access,
+    manager_candidate_access,
+    manager_candidate_ids,
+)
 from .models import (
     BackgroundCheck,
     Candidate,
@@ -85,11 +98,24 @@ class ClientViewSet(CsvImportExportMixin, OwnedModelViewSet):
     """Department Head gets read-only access on top of HR/Admin/Recruiter's
     full access — needed to populate the client picker when they create a
     Requisition ("request for recruit"), even though they otherwise have no
-    Recruit access at all."""
+    Recruit access at all.
+
+    Control Hierarchy Matrix (Client row): SA/HRA=RWA, FA=R, AUD=R,
+    REC=RW* ("assigned clients only"). Client has no "assigned clients"
+    concept to scope Recruiter by — Recruiter already has full org-wide
+    access via IsRecruiter, which is a superset of RW*, so that's left as
+    is (documented over-grant, same approximation the migration brief
+    sanctions for this exact row) rather than blocking on a new assignment
+    feature. FA/AUD get plain org-wide read below; get_queryset needs no
+    change since OwnedModelViewSet already returns the full tenant-scoped
+    list to anyone permission_classes lets through."""
 
     queryset = Client.objects.all()
     serializer_class = ClientSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsRecruiter | IsDepartmentHeadReadOnly]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsRecruiter | IsDepartmentHeadReadOnly | matrix_permission(fa='R', aud='R'),
+    ]
 
     csv_filename = 'clients'
     csv_activity_label = 'clients'
@@ -119,11 +145,32 @@ class ClientViewSet(CsvImportExportMixin, OwnedModelViewSet):
 class RequisitionViewSet(CsvImportExportMixin, OwnedModelViewSet):
     """Department Head may also view every requisition and create new ones
     ("request for recruit") on top of HR/Admin/Recruiter's full access —
-    never update/delete an existing one."""
+    never update/delete an existing one.
+
+    Control Hierarchy Matrix (Job Openings row): SA/HRA=RWA, FA=R, AUD=R,
+    MGR=R*/A* ("requisition goes to Manager for approval before HR
+    Admin/Recruiter posts live"), REC=RW* (already exceeded by IsRecruiter).
+    Requisition.hiring_manager is a free-text label, not an FK to a specific
+    Employee/manager, and the model has no "pending manager approval"
+    status choice at all (STATUS_CHOICES is Open/Interviewing/Offer
+    stage/On hold/Filled) — so the exact "goes to Manager before posting"
+    workflow gate can't be enforced without a new status value or an
+    assignment field. Approximated, like the Client row, as read+approve
+    access for any login that is actually a manager, tenant-wide rather
+    than scoped to "their" requisitions specifically; get_queryset needs no
+    override since OwnedModelViewSet's plain owner-scoped list already
+    covers this approximation."""
 
     queryset = Requisition.objects.select_related('client').all()
     serializer_class = RequisitionSerializer
-    permission_classes = [IsAuthenticated, IsOwner | IsRecruiter | IsDepartmentHeadRequisitionAccess]
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner
+        | IsRecruiter
+        | IsDepartmentHeadRequisitionAccess
+        | matrix_permission(fa='R', aud='R')
+        | manager_broad_access((*SAFE_METHODS, 'PUT', 'PATCH')),
+    ]
 
     csv_filename = 'job-openings'
     csv_activity_label = 'job openings'
@@ -180,8 +227,24 @@ class RequisitionViewSet(CsvImportExportMixin, OwnedModelViewSet):
 
 
 class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
+    """Backs three Control Hierarchy Matrix rows on the same model/viewset —
+    Candidates (SA/HRA=RWA, AUD=R, MGR=R*, REC=RW), Resume Pool ("just
+    candidates viewed through this lens" per the model docstring; AUD=R,
+    MGR='-', REC=RW), and AI Resume Screening (the `screen` action below;
+    AUD=R, MGR=R*, REC=RW). REC is already exceeded org-wide via
+    IsRecruiter on all three. Taking the union across the three rows (same
+    reasoning as People's shared AttendanceRecord viewset): AUD=R and
+    MGR=R* stand for the whole viewset — Resume Pool's MGR='-' is a minor,
+    accepted over-grant of the same kind. MGR is approximated tenant-wide
+    (manager_broad_access) since Candidate has no manager-assignment FK —
+    see RequisitionViewSet's docstring for the same underlying gap."""
+
     queryset = Candidate.objects.select_related('client', 'requisition').all()
     serializer_class = CandidateSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | IsRecruiter | matrix_permission(aud='R') | manager_broad_access(SAFE_METHODS),
+    ]
 
     csv_filename = 'candidates'
     csv_activity_label = 'candidates'
@@ -290,8 +353,21 @@ class OfferLetterTemplateViewSet(OwnedModelViewSet):
 
 
 class OfferLetterViewSet(CsvImportExportMixin, OwnedModelViewSet):
+    """Control Hierarchy Matrix (Digital Offer Letters row): SA=RWA,
+    HRA=RW (already exceeded by IsOwner's full HR access), FA=R, AUD=R,
+    MGR=A* ("manager approves before send" — approximated tenant-wide,
+    same hiring-manager-FK gap as RequisitionViewSet), REC=RW (already
+    exceeded by IsRecruiter)."""
+
     queryset = OfferLetter.objects.select_related('candidate').all()
     serializer_class = OfferLetterSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner
+        | IsRecruiter
+        | matrix_permission(fa='R', aud='R')
+        | manager_broad_access((*SAFE_METHODS, 'PUT', 'PATCH')),
+    ]
 
     csv_filename = 'offer-letters'
     csv_activity_label = 'offer letters'
@@ -336,8 +412,29 @@ class OfferLetterViewSet(CsvImportExportMixin, OwnedModelViewSet):
 
 
 class BackgroundCheckViewSet(CsvImportExportMixin, OwnedModelViewSet):
+    """Control Hierarchy Matrix (Background Check Integration row): SA=RWA,
+    HRA=RW (already exceeded), AUD=R, REC=RW (already exceeded), EMP=R*
+    ("candidates/employees see own consent status only"), CON='-' (no
+    access). "Own" for EMP is resolved via _my_candidate_id
+    (people.Employee.source_candidate) since this model is keyed by
+    Candidate, not Employee — see recruit.permissions module docstring."""
+
     queryset = BackgroundCheck.objects.select_related('candidate').all()
     serializer_class = BackgroundCheckSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner
+        | IsRecruiter
+        | matrix_permission(self_scope_field='candidate_id', self_id_getter=_my_candidate_id, aud='R', emp='R*'),
+    ]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Recruiter') or _role_is(self.request, 'Auditor'):
+            return qs
+        return scoped_queryset(
+            self.request, qs, self_scope_field='candidate_id', self_id_getter=_my_candidate_id, emp='R*'
+        )
 
     csv_filename = 'background-checks'
     csv_activity_label = 'background checks'
@@ -372,8 +469,42 @@ class BackgroundCheckViewSet(CsvImportExportMixin, OwnedModelViewSet):
 
 
 class OnboardingViewSet(OwnedModelViewSet):
+    """Control Hierarchy Matrix (Onboarding > Overview row): SA/HRA=RWA,
+    ITA=R, AUD=R, MGR=R*, REC=R (already exceeded by IsRecruiter), EMP=R*,
+    CON=R* ("new hire/Contractor see own checklist read-only"). "Own" for
+    EMP/CON is resolved via _my_candidate_id since Onboarding is keyed by
+    Candidate, not Employee. MGR's "own team" here is a real reverse lookup
+    (manager_candidate_access/manager_candidate_ids) through
+    people.Employee.source_candidate — unlike Requisition/Candidate/
+    OfferLetter, a hired candidate really does have a resolvable
+    Employee + manager chain."""
+
     queryset = Onboarding.objects.select_related('candidate').prefetch_related('tasks').all()
     serializer_class = OnboardingSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner
+        | IsRecruiter
+        | matrix_permission(
+            self_scope_field='candidate_id', self_id_getter=_my_candidate_id, ita='R', aud='R', emp='R*', con='R*'
+        )
+        | manager_candidate_access(candidate_field='candidate_id', methods=SAFE_METHODS),
+    ]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if (
+            is_hr_or_legacy(self.request)
+            or _role_is(self.request, 'Recruiter')
+            or _role_is(self.request, 'IT Manager')
+            or _role_is(self.request, 'Auditor')
+        ):
+            return qs
+        if has_any_reports(self.request):
+            return qs.filter(candidate_id__in=manager_candidate_ids(self.request))
+        return scoped_queryset(
+            self.request, qs, self_scope_field='candidate_id', self_id_getter=_my_candidate_id, emp='R*', con='R*'
+        )
 
     def perform_create(self, serializer):
         onboarding = serializer.save(owner_id=owner_scope_id(self.request))
@@ -386,18 +517,60 @@ class OnboardingTaskViewSet(viewsets.ModelViewSet):
     check doesn't apply. Ownership is enforced entirely by scoping the
     queryset to the parent's owner, same "404 not 403" effect. IT Manager
     gets a narrow view+update slice of just the Device Assignment rows
-    ("device tasks")."""
+    ("device tasks").
+
+    This one viewset also backs the Control Hierarchy Matrix's Joining
+    Documentation/Orientation/Training Plan/Portal Access/Probation
+    Evaluation/Device Assignment rows (all OnboardingTask, split only by
+    `category`, same shared-model situation as People's Attendance rows).
+    AUD=R across every category (plain org-wide read, added below). MGR is
+    real team-scoped (own former report's checklist) only for Orientation/
+    Training Plan (R*) and Probation Evaluation (RW*/A*) — every other
+    category has MGR='-'. EMP/CON's own-checklist access differs by
+    category (W*/R*/RW*/none) and is handled by IsSelfOnboardingTaskAccess
+    (see recruit/permissions.py) rather than the generic engine."""
 
     queryset = OnboardingTask.objects.select_related('onboarding').all()
     serializer_class = OnboardingTaskSerializer
-    permission_classes = [IsAuthenticated, IsHR | IsRecruiter | IsITManagerTaskAccess]
+    permission_classes = [
+        IsAuthenticated,
+        IsHR
+        | IsRecruiter
+        | IsITManagerTaskAccess
+        | matrix_permission(owner_getter=lambda obj: obj.onboarding.owner_id, aud='R')
+        | manager_candidate_access(
+            candidate_field='onboarding__candidate_id', methods=SAFE_METHODS, categories={'Orientation', 'Training Plan'}
+        )
+        | manager_candidate_access(
+            candidate_field='onboarding__candidate_id',
+            methods=(*SAFE_METHODS, 'PUT', 'PATCH'),
+            categories={'Probation Evaluation'},
+        )
+        | IsSelfOnboardingTaskAccess,
+    ]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         qs = self.queryset.filter(onboarding__owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Recruiter') or _role_is(self.request, 'Auditor'):
+            return qs
         if _role_is(self.request, 'IT Manager'):
-            qs = qs.filter(category='Device Assignment')
-        return qs
+            return qs.filter(category='Device Assignment')
+        if has_any_reports(self.request):
+            return qs.filter(
+                onboarding__candidate_id__in=manager_candidate_ids(self.request),
+                category__in=['Orientation', 'Training Plan', 'Probation Evaluation'],
+            )
+        my_candidate_id = _my_candidate_id(self.request)
+        if not my_candidate_id:
+            return qs.none()
+        profile = getattr(self.request.user, 'profile', None)
+        categories = list(
+            IsSelfOnboardingTaskAccess.EMP_CODES
+            if (profile and profile.role == 'Employee')
+            else IsSelfOnboardingTaskAccess.CON_CODES
+        )
+        return qs.filter(onboarding__candidate_id=my_candidate_id, category__in=categories)
 
     @action(detail=True, methods=['get'])
     def ics(self, request, pk=None):
@@ -429,8 +602,38 @@ class OnboardingTaskViewSet(viewsets.ModelViewSet):
 
 
 class OffboardingViewSet(OwnedModelViewSet):
+    """Backs two Control Hierarchy Matrix rows on the same model — Overview
+    (SA/HRA=RWA, ITA=R, AUD=R, MGR=R*) and Rehire & Alumni Pool (same
+    model's rehire_* fields; SA/HRA=RWA, AUD=R, MGR=A*, REC=R — already
+    exceeded by IsRecruiter). Taking the union for MGR (R* + A* -> real
+    read+write access to their own former report's record, via the same
+    reverse-lookup team-scoping as OnboardingViewSet) — same reasoning as
+    the shared-model rows elsewhere. EMP/CON are '-' (no access) on every
+    Offboarding-related row, so there's nothing to add for them anywhere in
+    this module."""
+
     queryset = Offboarding.objects.select_related('candidate').prefetch_related('tasks').all()
     serializer_class = OffboardingSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner
+        | IsRecruiter
+        | matrix_permission(ita='R', aud='R')
+        | manager_candidate_access(candidate_field='candidate_id', methods=(*SAFE_METHODS, 'PUT', 'PATCH')),
+    ]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if (
+            is_hr_or_legacy(self.request)
+            or _role_is(self.request, 'Recruiter')
+            or _role_is(self.request, 'IT Manager')
+            or _role_is(self.request, 'Auditor')
+        ):
+            return qs
+        if has_any_reports(self.request):
+            return qs.filter(candidate_id__in=manager_candidate_ids(self.request))
+        return qs.none()
 
     def perform_create(self, serializer):
         offboarding = serializer.save(owner_id=owner_scope_id(self.request))
@@ -440,18 +643,39 @@ class OffboardingViewSet(OwnedModelViewSet):
 class OffboardingTaskViewSet(viewsets.ModelViewSet):
     """Same reasoning as OnboardingTaskViewSet — no IsOwner, ownership comes
     from scoping the queryset to the parent Offboarding's owner. IT Manager
-    gets a narrow view+update slice of just the Hardware Clearance rows."""
+    gets a narrow view+update slice of just the Hardware Clearance rows
+    (pre-existing) plus, per the Control Hierarchy Matrix, Access Status now
+    too (RWA there) — core.permissions' shared IsITManagerTaskAccess only
+    covers Device Assignment/Hardware Clearance, so
+    IsITManagerAccessStatusAccess supplements it for the new category
+    rather than editing that shared class. AUD=R across every category
+    (added below, plain org-wide). Finance Admin gets a narrow read-only
+    slice of Hardware Clearance specifically ("sees asset value/write-off
+    impact"), unlike every other Offboarding row where FA='-'. EMP/CON are
+    '-' everywhere in this viewset — no self-service access to add."""
 
     queryset = OffboardingTask.objects.select_related('offboarding').all()
     serializer_class = OffboardingTaskSerializer
-    permission_classes = [IsAuthenticated, IsHR | IsRecruiter | IsITManagerTaskAccess]
+    permission_classes = [
+        IsAuthenticated,
+        IsHR
+        | IsRecruiter
+        | IsITManagerTaskAccess
+        | matrix_permission(owner_getter=lambda obj: obj.offboarding.owner_id, aud='R')
+        | IsITManagerAccessStatusAccess
+        | IsFinanceAdminHardwareClearanceReadOnly,
+    ]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_queryset(self):
         qs = self.queryset.filter(offboarding__owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Recruiter') or _role_is(self.request, 'Auditor'):
+            return qs
         if _role_is(self.request, 'IT Manager'):
-            qs = qs.filter(category='Hardware Clearance')
-        return qs
+            return qs.filter(category__in=['Access Status', 'Hardware Clearance'])
+        if _role_is(self.request, 'Finance Admin'):
+            return qs.filter(category='Hardware Clearance')
+        return qs.none()
 
 
 def _add_months(d, months):
@@ -479,9 +703,25 @@ class DashboardSummaryView(APIView):
     """Recruit's overview/analytics numbers, computed live from the
     user's own data — nothing here is stored/cached. "Revenue this month"
     reads from payroll_benefits.PayrollRun since placement-fee revenue is
-    tracked as payroll, not as a Recruit-owned figure."""
+    tracked as payroll, not as a Recruit-owned figure.
 
-    permission_classes = [IsAuthenticated, IsHR | IsRecruiter]
+    Control Hierarchy Matrix (Analytics > Recruiting dashboard row):
+    SA/HRA=RWA, FA=R, AUD=R, MGR=R*, REC=R* (already exceeded by
+    IsRecruiter). This is a plain APIView with no per-object checks, so
+    matrix_permission's has_permission-level MGR handling (has_any_reports)
+    is all that applies — there's no get_object() here to scope further.
+    The KPIs themselves stay tenant-wide for FA/AUD/MGR alike (not narrowed
+    to "own team/requirements only" as the matrix intends for MGR) since
+    that would mean re-deriving every aggregate from a "my team's
+    candidates/requisitions" queryset with no clean way to define that set
+    (see Requisition/Candidate's own MGR-scoping notes) — the same
+    limitation the People dashboard's own summary view already accepts for
+    Department Head/Manager-style scoping."""
+
+    permission_classes = [
+        IsAuthenticated,
+        IsHR | IsRecruiter | IsFinanceAdminReadOnly | IsAuditorReadOnly | matrix_permission(mgr='R'),
+    ]
 
     def get(self, request):
         uid = owner_scope_id(request)
