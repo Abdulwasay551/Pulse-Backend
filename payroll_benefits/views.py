@@ -2,7 +2,7 @@ from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -16,6 +16,7 @@ from core.permissions import (
     IsFinanceAdmin,
     IsHR,
     _role_is,
+    is_hr_or_legacy,
     owner_scope_id,
 )
 
@@ -49,6 +50,32 @@ def _resolve_payroll_run(owner_id, raw_value):
     return resolve_related(PayrollRun, owner_id, raw_value, match_fields=['period'], label='Payroll run')
 
 
+class IsHRReconcileOnly(BasePermission):
+    """HR Admin's one deliberate write exception on Payroll Processing —
+    signing a payroll run off as Reconciled is an approval action, not
+    general edit rights, so it's carved out separately from the matrix's
+    plain hra='R' code on PayrollRunViewSet below (everything else on this
+    row stays read-only for HR). Finance Admin has full RWA on this app but
+    is explicitly blocked from self-reconciling in perform_create/
+    perform_update — reconciling is the one action only HR can take here.
+
+    Grants a PUT/PATCH only when the submitted status is 'Reconciled' and
+    the run isn't already reconciled. The frontend's edit form always
+    resubmits every field together (period/contractors/amount/currency,
+    not just status), so this doesn't require the request to omit them —
+    only that the transition being requested is the sign-off itself."""
+
+    def has_permission(self, request, view):
+        return (
+            is_hr_or_legacy(request)
+            and request.method in ('PUT', 'PATCH')
+            and request.data.get('status') == 'Reconciled'
+        )
+
+    def has_object_permission(self, request, view, obj):
+        return obj.owner_id == owner_scope_id(request) and obj.status != 'Reconciled'
+
+
 class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
     """Shared base — every model in this app has its own `owner` field.
     Finance Admin has "full control across Payroll & Benefits" per the
@@ -67,24 +94,27 @@ class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
 
 
 class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
-    """Finance Admin has full control (including reconciling) — the matrix's
-    "Payroll Processing, Payslips" row gives HR Admin only 'R' here, so
-    there's no other write-capable role left to gate a "HR signs off on
-    Reconciled" step behind; that pre-matrix approval gate is removed
-    (see perform_create/perform_update below, and the module report)."""
+    """Finance Admin may create/update a payroll run, but can never mark it
+    'Reconciled' themselves — that final sign-off is HR Admin's one write
+    exception on this otherwise read-only-for-HR row (IsHRReconcileOnly),
+    the "approval required" gate for payroll processing."""
 
     queryset = PayrollRun.objects.all()
     serializer_class = PayrollRunSerializer
     # HR Admin: 'R' (read-only, not the full RWA it gets in Recruit/People/
-    # Talent — narrowed to match the matrix). Auditor gets org-wide read
-    # (matrix: "Payroll Processing, Payslips" / "Payroll Audit &
-    # Reconciliation Reports" rows). EMP/CON's matrix R* ("own payslip")
-    # can't be implemented on this model — PayrollRun is one row per
-    # company-wide pay run (aggregate amount/contractor count), not a
-    # per-employee payslip; there's no employee FK to self-scope by. See
-    # module report: would need a Payslip model (or an employee FK + a
-    # per-employee amount field here) to grant that slice for real.
-    permission_classes = [IsAuthenticated, IsFinanceAdmin | matrix_permission(sa='RWA', hra='R', aud='R')]
+    # Talent — narrowed to match the matrix) plus the one write exception
+    # above. Auditor gets org-wide read (matrix: "Payroll Processing,
+    # Payslips" / "Payroll Audit & Reconciliation Reports" rows). EMP/CON's
+    # matrix R* ("own payslip") can't be implemented on this model —
+    # PayrollRun is one row per company-wide pay run (aggregate amount/
+    # contractor count), not a per-employee payslip; there's no employee FK
+    # to self-scope by. See module report: would need a Payslip model (or
+    # an employee FK + a per-employee amount field here) to grant that
+    # slice for real.
+    permission_classes = [
+        IsAuthenticated,
+        IsFinanceAdmin | IsHRReconcileOnly | matrix_permission(sa='RWA', hra='R', aud='R'),
+    ]
 
     csv_filename = 'payroll-runs'
     csv_activity_label = 'payroll runs'
@@ -111,6 +141,8 @@ class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
         return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R')
 
     def perform_create(self, serializer):
+        if _role_is(self.request, 'Finance Admin') and serializer.validated_data.get('status') == 'Reconciled':
+            raise PermissionDenied('Only HR can mark a payroll run as Reconciled.')
         run = serializer.save(owner_id=owner_scope_id(self.request))
         if run.status == 'Needs review':
             log_activity(owner_scope_id(self.request), f'{run.period} payroll needs review', 'amber')
@@ -120,6 +152,9 @@ class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
         previous_flagged = serializer.instance.discrepancy_flagged
+        new_status = serializer.validated_data.get('status', previous_status)
+        if new_status == 'Reconciled' and previous_status != 'Reconciled' and _role_is(self.request, 'Finance Admin'):
+            raise PermissionDenied('Only HR can mark a payroll run as Reconciled.')
         run = serializer.save()
         uid = owner_scope_id(self.request)
         # Audit trail — every status change and flag/unflag on a payroll
