@@ -329,8 +329,17 @@ class Command(BaseCommand):
             department='People Ops', salary_type='Hourly', location='Austin, TX',
             manager=hr_lead, hire_date=d(5, 20), status='Active', monthly_salary=5400,
         )
+        # Contractor role login (below) needs a real Employee row to link
+        # to — UserProfile.clean() requires employee_id for role='Contractor'
+        # — so this one uses salary_type='Contract' rather than being just
+        # another salaried hire.
+        contractor_employee = Employee.objects.create(
+            owner=user, name='Contractor Demo', email='demo_contractor@Pulse.demo', job_title='Contract Engineer',
+            department='Engineering', client_name='Northbridge Talent', salary_type='Contract',
+            location='Remote — Lisbon', manager=eng_manager, hire_date=d(6, 15), status='Active', monthly_salary=6800,
+        )
 
-        # Demo logins for the 4 newer roles (IT Manager/Finance Admin are
+        # Demo logins for the newer roles (IT Manager/Finance Admin are
         # normally Admin/superuser-provisioned via Django admin, not this
         # HR-owned flow, but seeding them here directly gives the demo org a
         # working login for every role without needing a separate manual
@@ -340,6 +349,9 @@ class Command(BaseCommand):
         seed_role_account('demo_recruiter', 'Recruiter', first_name='Recruiter', last_name='Demo')
         seed_role_account('demo_it_manager', 'IT Manager', first_name='IT', last_name='Manager Demo')
         seed_role_account('demo_finance_admin', 'Finance Admin', first_name='Finance', last_name='Admin Demo')
+        seed_role_account('demo_auditor', 'Auditor', first_name='Auditor', last_name='Demo')
+        seed_role_account('demo_contractor', 'Contractor', first_name='Contractor', last_name='Demo',
+                           employee=contractor_employee)
 
         # Attendance Management
         AttendanceRecord.objects.create(
@@ -613,7 +625,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"{'Created' if created else 'Reset'} demo account: username={DEMO_USERNAME!r} password={password!r}"
         ))
-        role_usernames = ['demo_dept_head', 'demo_recruiter', 'demo_it_manager', 'demo_finance_admin']
+        role_usernames = [
+            'demo_dept_head', 'demo_recruiter', 'demo_it_manager', 'demo_finance_admin',
+            'demo_auditor', 'demo_contractor',
+        ]
         self.stdout.write(self.style.SUCCESS(
             f"Role demo logins (same password): {', '.join(role_usernames)}"
         ))
