@@ -15,9 +15,7 @@ from core.permissions import (
     IsDepartmentHeadReadOnly,
     IsFinanceAdmin,
     IsHR,
-    IsOwner,
     _role_is,
-    is_hr_or_legacy,
     owner_scope_id,
 )
 
@@ -53,10 +51,13 @@ def _resolve_payroll_run(owner_id, raw_value):
 
 class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
     """Shared base — every model in this app has its own `owner` field.
-    Finance Admin gets the same full-tier access as HR/Admin across this
-    whole app."""
+    Finance Admin has "full control across Payroll & Benefits" per the
+    Control Hierarchy Matrix; HR Admin's matrix column here is mostly
+    read-only (never full CRUD like it is in Recruit/People/Talent), so
+    concrete subclasses below compose their own narrower
+    matrix_permission(...) instead of inheriting a blanket HR grant."""
 
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin]
+    permission_classes = [IsAuthenticated, IsFinanceAdmin]
 
     def get_queryset(self):
         return self.queryset.filter(owner_id=owner_scope_id(self.request))
@@ -66,20 +67,24 @@ class OwnedPayrollBenefitsViewSet(viewsets.ModelViewSet):
 
 
 class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
-    """Finance Admin may create/update a payroll run, but can never mark it
-    'Reconciled' themselves — that final sign-off stays HR/Admin-only, the
-    "approval required" gate for payroll processing."""
+    """Finance Admin has full control (including reconciling) — the matrix's
+    "Payroll Processing, Payslips" row gives HR Admin only 'R' here, so
+    there's no other write-capable role left to gate a "HR signs off on
+    Reconciled" step behind; that pre-matrix approval gate is removed
+    (see perform_create/perform_update below, and the module report)."""
 
     queryset = PayrollRun.objects.all()
     serializer_class = PayrollRunSerializer
-    # Auditor gets org-wide read (matrix: "Payroll Processing, Payslips" /
-    # "Payroll Audit & Reconciliation Reports" rows). EMP/CON's matrix R*
-    # ("own payslip") can't be implemented on this model — PayrollRun is one
-    # row per company-wide pay run (aggregate amount/contractor count), not
-    # a per-employee payslip; there's no employee FK to self-scope by. See
+    # HR Admin: 'R' (read-only, not the full RWA it gets in Recruit/People/
+    # Talent — narrowed to match the matrix). Auditor gets org-wide read
+    # (matrix: "Payroll Processing, Payslips" / "Payroll Audit &
+    # Reconciliation Reports" rows). EMP/CON's matrix R* ("own payslip")
+    # can't be implemented on this model — PayrollRun is one row per
+    # company-wide pay run (aggregate amount/contractor count), not a
+    # per-employee payslip; there's no employee FK to self-scope by. See
     # module report: would need a Payslip model (or an employee FK + a
     # per-employee amount field here) to grant that slice for real.
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | matrix_permission(aud='R')]
+    permission_classes = [IsAuthenticated, IsFinanceAdmin | matrix_permission(sa='RWA', hra='R', aud='R')]
 
     csv_filename = 'payroll-runs'
     csv_activity_label = 'payroll runs'
@@ -101,13 +106,11 @@ class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R')
+        return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R')
 
     def perform_create(self, serializer):
-        if _role_is(self.request, 'Finance Admin') and serializer.validated_data.get('status') == 'Reconciled':
-            raise PermissionDenied('Only HR or an Admin can mark a payroll run as Reconciled.')
         run = serializer.save(owner_id=owner_scope_id(self.request))
         if run.status == 'Needs review':
             log_activity(owner_scope_id(self.request), f'{run.period} payroll needs review', 'amber')
@@ -117,9 +120,6 @@ class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     def perform_update(self, serializer):
         previous_status = serializer.instance.status
         previous_flagged = serializer.instance.discrepancy_flagged
-        new_status = serializer.validated_data.get('status', previous_status)
-        if new_status == 'Reconciled' and previous_status != 'Reconciled' and _role_is(self.request, 'Finance Admin'):
-            raise PermissionDenied('Only HR or an Admin can mark a payroll run as Reconciled.')
         run = serializer.save()
         uid = owner_scope_id(self.request)
         # Audit trail — every status change and flag/unflag on a payroll
@@ -157,15 +157,16 @@ class ExchangeRateViewSet(viewsets.ModelViewSet):
 
     queryset = ExchangeRate.objects.all()
     serializer_class = ExchangeRateSerializer
-    # Matrix: "Multi-Currency Support & Compliance Calendar" — Auditor gets
-    # org-wide read; no EMP/CON access at all on this row.
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | matrix_permission(aud='R')]
+    # Matrix: "Multi-Currency Support & Compliance Calendar" — HR Admin 'R'
+    # (narrowed from full RWA); Auditor org-wide read; no EMP/CON access at
+    # all on this row.
+    permission_classes = [IsAuthenticated, IsFinanceAdmin | matrix_permission(sa='RWA', hra='R', aud='R')]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R')
+        return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R')
 
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
@@ -197,9 +198,11 @@ class TaxProfileViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = TaxProfile.objects.select_related('employee').all()
     serializer_class = TaxProfileSerializer
-    # Matrix: "Multi-Country Tax Compliance" — Auditor gets org-wide read;
-    # no EMP/CON access on this row (not even their own).
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(aud='R')]
+    # Matrix: "Multi-Country Tax Compliance" — HR Admin gets '-' (no access
+    # at all, not even read — the one row in this module where even HR's
+    # read is denied); Auditor gets org-wide read; no EMP/CON access on this
+    # row (not even their own).
+    permission_classes = [IsAuthenticated, IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(sa='RWA', aud='R')]
 
     csv_filename = 'tax-profiles'
     csv_activity_label = 'tax profiles'
@@ -224,9 +227,9 @@ class TaxProfileViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
             return qs.filter(employee__department=self.request.user.profile.department)
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R')
+        return scoped_queryset(self.request, qs, sa='RWA', aud='R')
 
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
@@ -236,9 +239,9 @@ class ComplianceEventViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     queryset = ComplianceEvent.objects.select_related('linked_payroll_run').all()
     serializer_class = ComplianceEventSerializer
     # Matrix: same "Multi-Currency Support & Compliance Calendar" row as
-    # ExchangeRateViewSet (this is the calendar half) — Auditor org-wide
-    # read, no EMP/CON access.
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | matrix_permission(aud='R')]
+    # ExchangeRateViewSet (this is the calendar half) — HR Admin 'R'
+    # (narrowed from full RWA); Auditor org-wide read, no EMP/CON access.
+    permission_classes = [IsAuthenticated, IsFinanceAdmin | matrix_permission(sa='RWA', hra='R', aud='R')]
 
     csv_filename = 'compliance-events'
     csv_activity_label = 'compliance events'
@@ -270,9 +273,9 @@ class ComplianceEventViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R')
+        return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R')
 
 
 class BankAccountViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
@@ -281,13 +284,14 @@ class BankAccountViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = BankAccount.objects.select_related('employee').all()
     serializer_class = BankAccountSerializer
-    # Matrix: "Direct Deposit / Banking Integration" — Auditor org-wide
-    # read; Employee gets 'W*' (write only, own record — can submit/update
-    # their own direct-deposit info but not read it back, matching the
-    # matrix literally); Contractor gets none.
+    # Matrix: "Direct Deposit / Banking Integration" — HR Admin gets '-' (no
+    # access at all, same as Multi-Country Tax Compliance above); Auditor
+    # org-wide read; Employee gets 'W*' (write only, own record — can
+    # submit/update their own direct-deposit info but not read it back,
+    # matching the matrix literally); Contractor gets none.
     permission_classes = [
         IsAuthenticated,
-        IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(aud='R', emp='W*'),
+        IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(sa='RWA', aud='R', emp='W*'),
     ]
 
     csv_filename = 'bank-accounts'
@@ -318,9 +322,9 @@ class BankAccountViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
             return qs.filter(employee__department=self.request.user.profile.department)
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R', emp='W*')
+        return scoped_queryset(self.request, qs, sa='RWA', aud='R', emp='W*')
 
     def perform_create(self, serializer):
         profile = getattr(self.request.user, 'profile', None)
@@ -346,17 +350,18 @@ class BenefitPlanViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
     serializer_class = BenefitPlanSerializer
     # Not its own matrix row — this is the plan catalog side of "Benefits
     # Enrollment" (BenefitEnrollmentViewSet below is the per-employee side).
-    # Employee's matrix grant there (RW*) is meaningless without being able
-    # to browse what's on offer first, so Employee gets a plain 'R' here too
-    # (unstarred: the catalog isn't per-employee data). Auditor org-wide
-    # read; Contractor gets none, matching "Benefits Enrollment" CON='-'.
-    permission_classes = [IsAuthenticated, IsOwner | IsFinanceAdmin | matrix_permission(aud='R', emp='R')]
+    # HR Admin 'R' (narrowed from full RWA); Employee's matrix grant there
+    # (RW*) is meaningless without being able to browse what's on offer
+    # first, so Employee gets a plain 'R' here too (unstarred: the catalog
+    # isn't per-employee data). Auditor org-wide read; Contractor gets none,
+    # matching "Benefits Enrollment" CON='-'.
+    permission_classes = [IsAuthenticated, IsFinanceAdmin | matrix_permission(sa='RWA', hra='R', aud='R', emp='R')]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R', emp='R')
+        return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R', emp='R')
 
     csv_filename = 'benefit-plans'
     csv_activity_label = 'benefit plans'
@@ -383,12 +388,12 @@ class BenefitEnrollmentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = BenefitEnrollment.objects.select_related('employee', 'plan').all()
     serializer_class = BenefitEnrollmentSerializer
-    # Matrix: "Benefits Enrollment" — Auditor org-wide read; Employee gets
-    # real self-service (RW* — view + enroll/change their own coverage);
-    # Contractor gets none.
+    # Matrix: "Benefits Enrollment" — HR Admin 'R' (narrowed from full RWA);
+    # Auditor org-wide read; Employee gets real self-service (RW* — view +
+    # enroll/change their own coverage); Contractor gets none.
     permission_classes = [
         IsAuthenticated,
-        IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(aud='R', emp='RW*'),
+        IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(sa='RWA', hra='R', aud='R', emp='RW*'),
     ]
 
     csv_filename = 'benefit-enrollments'
@@ -411,9 +416,9 @@ class BenefitEnrollmentViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
             return qs.filter(employee__department=self.request.user.profile.department)
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R', emp='RW*')
+        return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R', emp='RW*')
 
     def perform_create(self, serializer):
         profile = getattr(self.request.user, 'profile', None)
@@ -442,7 +447,9 @@ class BenefitClaimViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     queryset = BenefitClaim.objects.select_related('employee', 'plan').all()
     serializer_class = BenefitClaimSerializer
-    # Matrix: "Claims, Reimbursement & Bonus Workflows" — Auditor org-wide
+    # Matrix: "Claims, Reimbursement & Bonus Workflows" — HR Admin 'R'
+    # (narrowed from full RWA — approving/resolving a claim is now Finance
+    # Admin's or the claimant's Manager's job, not HR's); Auditor org-wide
     # read; Manager gets 'A*' (approve their own team's claims — covered by
     # matrix_permission treating Approve as read+write, gated to the team);
     # Employee/Contractor get 'W*' (submit their own claim, write only, per
@@ -452,7 +459,9 @@ class BenefitClaimViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     # consistency with the matrix, same as AttendanceRecord in People).
     permission_classes = [
         IsAuthenticated,
-        IsOwner | IsFinanceAdmin | IsDepartmentHeadReadOnly | matrix_permission(aud='R', mgr='A*', emp='W*', con='W*'),
+        IsFinanceAdmin
+        | IsDepartmentHeadReadOnly
+        | matrix_permission(sa='RWA', hra='R', aud='R', mgr='A*', emp='W*', con='W*'),
     ]
 
     csv_filename = 'benefit-claims'
@@ -477,9 +486,9 @@ class BenefitClaimViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if _role_is(self.request, 'Department Head'):
             return qs.filter(employee__department=self.request.user.profile.department)
-        if is_hr_or_legacy(self.request) or _role_is(self.request, 'Finance Admin'):
+        if _role_is(self.request, 'Finance Admin'):
             return qs
-        return scoped_queryset(self.request, qs, aud='R', mgr='A*', emp='W*', con='W*')
+        return scoped_queryset(self.request, qs, sa='RWA', hra='R', aud='R', mgr='A*', emp='W*', con='W*')
 
     def perform_create(self, serializer):
         profile = getattr(self.request.user, 'profile', None)

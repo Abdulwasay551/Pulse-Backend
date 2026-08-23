@@ -33,15 +33,19 @@ ROLE_CODE = {
 
 
 def role_code(request):
-    """SA for Django superusers, HRA for legacy no-profile accounts (same
-    "missing profile = full access" convention as core.permissions), else
-    the matrix column for this login's role — or None for a role the
-    matrix doesn't define a column for (Department Head)."""
+    """SA for Django superusers *and* legacy no-profile accounts (same
+    "missing profile = full access, nothing existing breaks" convention as
+    core.permissions.is_hr_or_legacy — a pre-role-system account predates
+    the matrix entirely and reads as the org's unrestricted root user, not
+    as a modern HRA hire whose access the matrix deliberately scopes to
+    Recruit/People/Talent only), else the matrix column for this login's
+    role — or None for a role the matrix doesn't define a column for
+    (Department Head)."""
     if request.user.is_superuser:
         return 'SA'
     profile = getattr(request.user, 'profile', None)
     if profile is None:
-        return 'HRA'
+        return 'SA'
     return ROLE_CODE.get(profile.role)
 
 

@@ -48,8 +48,23 @@ VERCEL_URL = os.getenv('VERCEL_URL')
 if VERCEL_URL and VERCEL_URL not in ALLOWED_HOSTS:
     ALLOWED_HOSTS.append(VERCEL_URL)
 
+# VERCEL_URL is only this *specific* deployment's auto-generated hash
+# hostname, not the stable production alias (e.g. backend-bay-three-53.
+# vercel.app) — that alias is a different hostname on every new deploy's
+# VERCEL_URL, so relying on VERCEL_URL alone means every redeploy has a
+# real chance of 400ing every request with DisallowedHost the moment the
+# alias no longer happens to match. No DJANGO_ALLOWED_HOSTS env var is set
+# in production, so trust the whole *.vercel.app subdomain (every
+# deployment hash and alias this project could ever have lives there) as a
+# durable fallback instead of one hardcoded hostname that breaks again next
+# deploy.
+if '.vercel.app' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append('.vercel.app')
+
 CSRF_TRUSTED_ORIGINS = [
-    f'https://{host}' for host in ALLOWED_HOSTS if host not in ('localhost', '127.0.0.1')
+    (f'https://*{host}' if host.startswith('.') else f'https://{host}')
+    for host in ALLOWED_HOSTS
+    if host not in ('localhost', '127.0.0.1')
 ]
 
 # Vercel terminates TLS and proxies requests over HTTP internally, so Django
