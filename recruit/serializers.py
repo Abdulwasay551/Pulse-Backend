@@ -77,6 +77,7 @@ class CandidateSerializer(serializers.ModelSerializer):
             'id', 'name', 'initials', 'role', 'email', 'phone', 'country', 'city', 'client', 'client_name',
             'requisition', 'requisition_title', 'stage', 'source', 'current_salary', 'applied_at', 'placed_at',
             'resume_file', 'resume_text', 'ai_score', 'ai_score_notes', 'ai_score_strengths', 'ai_score_gaps',
+            'hackerrank_test_id', 'hackerrank_status', 'hackerrank_score', 'hackerrank_report_url',
             'portal_token', 'created_at', 'updated_at',
         ]
         read_only_fields = [
@@ -84,6 +85,7 @@ class CandidateSerializer(serializers.ModelSerializer):
             # regular entry and CSV import need to be able to log a
             # candidate's real historical application date, not just "now".
             'id', 'placed_at', 'ai_score', 'ai_score_notes', 'ai_score_strengths', 'ai_score_gaps',
+            'hackerrank_test_id', 'hackerrank_status', 'hackerrank_score', 'hackerrank_report_url',
             'portal_token', 'created_at', 'updated_at',
         ]
 

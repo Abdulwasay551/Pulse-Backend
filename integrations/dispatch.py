@@ -110,12 +110,14 @@ def _lazy_action_testers():
     notification-only integration) that never needs them."""
     from .checkr_provider import CheckrError, test_credentials as checkr_test
     from .dropbox_sign_provider import DropboxSignError, test_credentials as dropbox_sign_test
+    from .hackerrank_provider import HackerRankError, test_credentials as hackerrank_test
     from .zoom_provider import ZoomError, test_credentials as zoom_test
 
     return {
         'zoom': _test_credentials_only(ZoomError, zoom_test),
         'checkr': _test_credentials_only(CheckrError, checkr_test),
         'dropbox_sign': _test_credentials_only(DropboxSignError, dropbox_sign_test),
+        'hackerrank': _test_credentials_only(HackerRankError, hackerrank_test),
     }
 
 

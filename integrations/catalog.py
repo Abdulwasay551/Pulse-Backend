@@ -167,6 +167,23 @@ INTEGRATIONS = {
         ],
         'notify_tones': set(),
     },
+    'hackerrank': {
+        'label': 'HackerRank',
+        'category': 'Recruiting',
+        'description': 'Send a real technical assessment to a candidate and pull their score back.',
+        'setup_instructions': (
+            '1. Sign up / log in at hackerrank.com/work (a HackerRank for Work account).\n'
+            '2. Create at least one test under Tests -> Create Test — copy its Test ID from the test\'s '
+            'own settings/URL (you\'ll enter it when sending a test to a candidate, so different roles '
+            'can use different tests).\n'
+            '3. Go to Account Settings -> API and copy your API token.\n'
+            '4. Paste it below.'
+        ),
+        'fields': [
+            {'name': 'api_token', 'label': 'API Token', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
     'zoom': {
         'label': 'Zoom',
         'category': 'Recruiting',

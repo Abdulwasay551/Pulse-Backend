@@ -131,6 +131,17 @@ class Candidate(models.Model):
     ai_score_notes = models.TextField(blank=True)
     ai_score_strengths = models.JSONField(default=list, blank=True)
     ai_score_gaps = models.JSONField(default=list, blank=True)
+    # Set once a real technical assessment is sent via a connected HackerRank
+    # account (integrations.hackerrank_provider) — hackerrank_test_id is the
+    # specific test invited to (an org may use different tests per role, so
+    # this isn't a single org-wide default). Score/status are refreshed
+    # on demand ("Refresh score" action) rather than via webhook — see the
+    # provider module for why.
+    hackerrank_test_id = models.CharField(max_length=64, blank=True)
+    hackerrank_candidate_id = models.CharField(max_length=64, blank=True)
+    hackerrank_status = models.CharField(max_length=30, blank=True)
+    hackerrank_score = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
+    hackerrank_report_url = models.URLField(blank=True)
     # The Candidate Portal is a public, no-login status page for the
     # candidate themselves — this token is its unguessable key. Real
     # candidate accounts/auth would be a much bigger lift; a stable secret

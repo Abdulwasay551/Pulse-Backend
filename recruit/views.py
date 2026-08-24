@@ -33,6 +33,9 @@ from integrations.checkr_provider import CheckrError
 from integrations.checkr_provider import initiate_check as initiate_checkr_check
 from integrations.dropbox_sign_provider import DropboxSignError
 from integrations.dropbox_sign_provider import send_for_signature as send_offer_for_signature
+from integrations.hackerrank_provider import HackerRankError
+from integrations.hackerrank_provider import invite_candidate as invite_to_hackerrank
+from integrations.hackerrank_provider import refresh_score as refresh_hackerrank_score
 from integrations.zoom_provider import ZoomError
 from integrations.zoom_provider import create_meeting as create_zoom_meeting
 from payroll_benefits.models import PayrollRun
@@ -345,6 +348,47 @@ class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
         except ZoomError as exc:
             return Response({'detail': str(exc), 'code': 'zoom_not_configured'}, status=409)
         return Response(meeting)
+
+    @action(detail=True, methods=['post'], url_path='send-to-hackerrank')
+    def send_to_hackerrank(self, request, pk=None):
+        """Sends this candidate a real HackerRank test — test_id is
+        supplied per-send (request body), since an org typically uses
+        different tests for different roles rather than one org-wide
+        default."""
+        candidate = self.get_object()
+        test_id = (request.data.get('test_id') or '').strip()
+        if not test_id:
+            return Response({'detail': 'test_id is required.'}, status=400)
+        try:
+            result = invite_to_hackerrank(owner_scope_id(request), candidate, test_id)
+        except HackerRankError as exc:
+            return Response({'detail': str(exc), 'code': 'hackerrank_not_configured'}, status=409)
+        candidate.hackerrank_test_id = test_id
+        candidate.hackerrank_candidate_id = result['hackerrank_candidate_id']
+        candidate.hackerrank_status = 'Invited'
+        candidate.save(
+            update_fields=['hackerrank_test_id', 'hackerrank_candidate_id', 'hackerrank_status', 'updated_at']
+        )
+        log_activity(owner_scope_id(request), f'{candidate.name} sent a HackerRank test', 'neutral')
+        return Response(CandidateSerializer(candidate, context={'request': request}).data)
+
+    @action(detail=True, methods=['post'], url_path='refresh-hackerrank-score')
+    def refresh_hackerrank_score(self, request, pk=None):
+        """Polls HackerRank for this candidate's latest report — see
+        integrations.hackerrank_provider's module docstring for why this
+        is a manual refresh rather than a webhook."""
+        candidate = self.get_object()
+        try:
+            result = refresh_hackerrank_score(owner_scope_id(request), candidate)
+        except HackerRankError as exc:
+            return Response({'detail': str(exc), 'code': 'hackerrank_not_configured'}, status=409)
+        candidate.hackerrank_status = result['status']
+        candidate.hackerrank_score = result['score']
+        candidate.hackerrank_report_url = result['report_url'] or candidate.hackerrank_report_url
+        candidate.save(
+            update_fields=['hackerrank_status', 'hackerrank_score', 'hackerrank_report_url', 'updated_at']
+        )
+        return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
 
 class CandidatePortalView(APIView):
