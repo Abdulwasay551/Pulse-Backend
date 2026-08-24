@@ -104,6 +104,31 @@ INTEGRATIONS = {
         # SMS is per-message priced and easy to make painful — critical-only.
         'notify_tones': NOTIFY_TONES_CRITICAL_ONLY,
     },
+    'smtp': {
+        'label': 'Email (SMTP)',
+        'category': 'Email',
+        'description': (
+            'Send this org\'s password-reset and invite emails through your own mail provider instead of '
+            'Pulse\'s shared default — every email then comes from your own address and domain.'
+        ),
+        'setup_instructions': (
+            'Use any SMTP provider — SendGrid, Mailgun, Postmark, Amazon SES, Google Workspace, or your own '
+            'mail server:\n'
+            '1. In your provider\'s dashboard, create an SMTP-sending API key or app password (e.g. SendGrid: '
+            'Settings -> API Keys; Google Workspace: an App Password on the sending account).\n'
+            '2. Copy the SMTP host and port from the same page (e.g. SendGrid is smtp.sendgrid.net, port 587).\n'
+            '3. Fill in the fields below — the username is often literally "apikey" for API-key-based '
+            'providers like SendGrid, not an email address; check your provider\'s docs if unsure.'
+        ),
+        'fields': [
+            {'name': 'host', 'label': 'SMTP Host', 'type': 'text', 'secret': False, 'required': True, 'placeholder': 'smtp.sendgrid.net'},
+            {'name': 'port', 'label': 'Port', 'type': 'text', 'secret': False, 'required': True, 'placeholder': '587'},
+            {'name': 'username', 'label': 'Username', 'type': 'text', 'secret': True, 'required': True},
+            {'name': 'password', 'label': 'Password / API Key', 'type': 'password', 'secret': True, 'required': True},
+            {'name': 'from_email', 'label': 'From address', 'type': 'text', 'secret': False, 'required': True, 'placeholder': 'no-reply@yourcompany.com'},
+        ],
+        'notify_tones': set(),
+    },
     'zoom': {
         'label': 'Zoom',
         'category': 'Recruiting',

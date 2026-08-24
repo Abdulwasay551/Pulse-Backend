@@ -2,7 +2,6 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
 from django.contrib.auth.password_validation import validate_password
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
@@ -14,6 +13,8 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+
+from integrations.email_provider import send_org_email
 
 from .cookies import clear_auth_cookies, set_auth_cookies
 from .serializers import (
@@ -147,16 +148,20 @@ class ForgotPasswordView(APIView):
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             token = default_token_generator.make_token(user)
             reset_link = f'{settings.FRONTEND_URL}/reset-password?uid={uid}&token={token}'
-            send_mail(
+            # Mirrors owner_scope_id(request)'s own fallback (no profile ==
+            # this login is its own tenant) — there's no request/profile
+            # object to reuse that helper against here, only the target user.
+            profile = getattr(user, 'profile', None)
+            owner_id = profile.data_owner_id if profile is not None else user.id
+            send_org_email(
+                owner_id,
                 subject='Reset your Pulse password',
                 message=(
                     f'Someone asked to reset the password for this account.\n\n'
                     f'Reset it here: {reset_link}\n\n'
                     f'If this wasn’t you, you can safely ignore this email.'
                 ),
-                from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
-                fail_silently=True,
             )
 
         # Same response whether or not the email matched an account — this

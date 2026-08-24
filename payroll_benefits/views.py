@@ -10,6 +10,7 @@ from core.access_matrix import matrix_permission, scoped_queryset
 from core.activity import log_activity
 from core.csv_io import CsvImportExportMixin, resolve_employee, resolve_related
 from core.models import ActivityLog
+from integrations.fx_provider import FxProviderError, fetch_live_rates
 from core.permissions import (
     IsAuditorReadOnly,
     IsDepartmentHeadReadOnly,
@@ -186,9 +187,10 @@ class PayrollRunViewSet(CsvImportExportMixin, OwnedPayrollBenefitsViewSet):
 
 
 class ExchangeRateViewSet(viewsets.ModelViewSet):
-    """Multi-Currency Support's rate source — HR/Finance Admin maintain
-    these directly (no live FX API is provisioned), so `updated_at` is the
-    honest "as of" date rather than a fabricated daily feed."""
+    """Multi-Currency Support's rate source — rates can be set by hand, or
+    refreshed live via sync_live_rates below (Frankfurter/ECB reference
+    rates, no API key needed), so `updated_at` reflects whichever the org
+    last did."""
 
     queryset = ExchangeRate.objects.all()
     serializer_class = ExchangeRateSerializer
@@ -225,6 +227,27 @@ class ExchangeRateViewSet(viewsets.ModelViewSet):
         usd_value = amount * rates[from_currency]
         converted = usd_value / rates[to_currency]
         return Response({'amount': amount, 'from': from_currency, 'to': to_currency, 'result': round(converted, 2)})
+
+    @action(detail=False, methods=['post'], url_path='sync-live-rates')
+    def sync_live_rates(self, request):
+        """Refreshes every currency this org already tracks against live
+        rates — add a currency by hand first (even a placeholder rate of
+        1), then sync to keep it current from then on."""
+        uid = owner_scope_id(request)
+        currencies = list(self.get_queryset().values_list('currency', flat=True))
+        if not currencies:
+            return Response({'detail': 'Add at least one currency first, then sync.'}, status=400)
+        try:
+            rates = fetch_live_rates(currencies)
+        except FxProviderError as exc:
+            return Response({'detail': str(exc)}, status=502)
+        updated = []
+        for code, rate in rates.items():
+            # QuerySet.update() bypasses Model.save(), so auto_now wouldn't
+            # otherwise touch updated_at — set it explicitly.
+            ExchangeRate.objects.filter(owner_id=uid, currency=code).update(rate_to_usd=rate, updated_at=timezone.now())
+            updated.append(code)
+        return Response({'updated': updated})
 
 
 class TaxProfileViewSet(CsvImportExportMixin, viewsets.ModelViewSet):

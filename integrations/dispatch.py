@@ -110,8 +110,23 @@ def test_connection(connection):
     """Used by the "Test" button — unlike notify_all, this one surfaces its
     error, since the whole point is telling the user whether it worked."""
     meta = INTEGRATIONS.get(connection.integration_key)
+    if not meta:
+        raise IntegrationError('Unknown integration.')
+
+    if connection.integration_key == 'smtp':
+        # Needs the full connection (for .owner.email as the test
+        # recipient), not just its config — doesn't fit the generic
+        # (config, event, message, tone) shape every other sender uses.
+        from .email_provider import EmailProviderError, test_credentials as smtp_test
+
+        try:
+            smtp_test(connection)
+        except EmailProviderError as exc:
+            raise IntegrationError(f'Could not send through this SMTP connection: {exc}') from exc
+        return
+
     sender = _SENDERS.get(connection.integration_key) or _lazy_action_testers().get(connection.integration_key)
-    if not meta or not sender:
+    if not sender:
         raise IntegrationError('Unknown integration.')
     try:
         sender(connection.get_config(), 'test', 'Pulse test notification — your connection is working.', 'primary')

@@ -2,13 +2,13 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.core.mail import send_mail
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from integrations.email_provider import send_org_email
 from people.models import Employee
 
 from .models import EmployeeInvite, Organization, UserProfile
@@ -49,16 +49,15 @@ class EmployeeInviteView(APIView):
             organization=profile.organization, employee=employee, email=email
         )
         signup_link = f'{settings.FRONTEND_URL}/signup?invite={invite.token}'
-        send_mail(
+        send_org_email(
+            owner_scope_id(request),
             subject=f'You’re invited to join {profile.organization.name} on Pulse',
             message=(
                 f'{employee.name}, you’ve been invited to set up your employee account for '
                 f'{profile.organization.name}.\n\nCreate your login here: {signup_link}\n\n'
                 f'If you weren’t expecting this, you can safely ignore this email.'
             ),
-            from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[email],
-            fail_silently=True,
         )
         return Response({'detail': 'Invite sent.', 'signup_link': signup_link})
 
