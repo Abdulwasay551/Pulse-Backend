@@ -44,6 +44,7 @@ urlpatterns = [
     # Bring-your-own-key AI provider integration (credentials, per-feature
     # model selection, and the status gate every AI-touched page checks).
     path('api/ai/', include('ai_core.urls')),
+    path('api/integrations/', include('integrations.urls')),
 ]
 
 if settings.DEBUG:

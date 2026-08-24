@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     'talent',
     'it_assets',
     'ai_core',
+    'integrations',
 
     # Wagtail CMS
     'cms',
