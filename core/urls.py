@@ -14,7 +14,7 @@ from .auth_views import (
 from .banner_views import BannerInfoView
 from .demo_views import DemoRequestCreateView
 from .health_views import OrgHealthView
-from .hr_views import EmployeeAccountCreateView, EmployeeInviteView, InviteDetailView
+from .hr_views import AdminAccountCreateView, EmployeeAccountCreateView, EmployeeInviteView, InviteDetailView
 from .my_views import (
     ClockInView,
     ClockOutView,
@@ -43,6 +43,7 @@ urlpatterns = [
     path('employee-invites/', EmployeeInviteView.as_view(), name='employee-invite'),
     path('invites/<uuid:token>/', InviteDetailView.as_view(), name='invite-detail'),
     path('employee-accounts/', EmployeeAccountCreateView.as_view(), name='employee-account-create'),
+    path('admin-accounts/', AdminAccountCreateView.as_view(), name='admin-account-create'),
     # Employee-role self-service
     path('my/dashboard/', MyDashboardView.as_view(), name='my-dashboard'),
     path('my/clock-in/', ClockInView.as_view(), name='my-clock-in'),

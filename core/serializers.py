@@ -19,8 +19,11 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'first_name', 'last_name', 'date_joined', 'role', 'organization', 'employee']
-        read_only_fields = ['id', 'username', 'date_joined', 'role', 'organization', 'employee']
+        fields = [
+            'id', 'username', 'email', 'first_name', 'last_name', 'date_joined',
+            'role', 'organization', 'employee', 'is_superuser',
+        ]
+        read_only_fields = ['id', 'username', 'date_joined', 'role', 'organization', 'employee', 'is_superuser']
 
     def get_role(self, obj):
         profile = getattr(obj, 'profile', None)

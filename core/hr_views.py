@@ -135,3 +135,85 @@ class EmployeeAccountCreateView(APIView):
         )
 
         return Response({'detail': 'Account created.', 'username': username, 'role': role}, status=status.HTTP_201_CREATED)
+
+
+# Every storable UserProfile role a Super Admin can hand out directly.
+# UserProfile.clean() itself only hard-requires an Employee link for
+# Employee/Contractor — every other role here may optionally attach one
+# for context (e.g. Department Head's department scoping) but doesn't
+# need to.
+ROLES_ADMIN_CAN_CREATE = {
+    'HR', 'Employee', 'IT Manager', 'Finance Admin', 'Department Head',
+    'Recruiter', 'Auditor', 'Contractor',
+}
+ROLES_REQUIRING_EMPLOYEE = {'Employee', 'Contractor'}
+
+
+class AdminAccountCreateView(APIView):
+    """Super Admin (Django superuser) provisioning — creates a login for
+    any storable role directly, same "set a username/password, no email
+    step" shape as EmployeeAccountCreateView above. That view is HR's
+    narrower self-service flow (Employee/Department Head/Recruiter only,
+    always tied to an existing Employee record); this is the full-power
+    version reachable from the Super Admin dashboard's "Invite / create
+    user" panel — IT Manager/Finance Admin/Auditor accounts, previously
+    only provisionable via Django admin per that view's own docstring,
+    can now be created from the app itself."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        if not request.user.is_superuser:
+            return Response(
+                {'detail': 'Only a Super Admin account can create logins for these roles.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        username = request.data.get('username', '').strip()
+        password = request.data.get('password', '')
+        role = request.data.get('role', '')
+        email = request.data.get('email', '').strip()
+        employee_id = request.data.get('employee')
+        department = request.data.get('department', '').strip()
+
+        if not username or not password or not role:
+            return Response({'detail': 'username, password, and role are required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if role not in ROLES_ADMIN_CAN_CREATE:
+            return Response(
+                {'role': [f'Invalid role — must be one of: {", ".join(sorted(ROLES_ADMIN_CAN_CREATE))}.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role == 'Department Head' and not department:
+            return Response(
+                {'department': ['department is required for a Department Head account.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        employee = None
+        if employee_id:
+            employee = get_object_or_404(Employee, id=employee_id, owner_id=owner_scope_id(request))
+            if hasattr(employee, 'user_accounts') and employee.user_accounts.exists():
+                return Response({'detail': 'This employee already has a login.'}, status=status.HTTP_400_BAD_REQUEST)
+        elif role in ROLES_REQUIRING_EMPLOYEE:
+            return Response(
+                {'employee': [f'employee is required for a {role} account.']}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if User.objects.filter(username__iexact=username).exists():
+            return Response({'username': ['That username is already taken.']}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_password(password)
+        except DjangoValidationError as exc:
+            return Response({'password': list(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        profile = get_or_create_hr_profile(request.user)
+        user = User.objects.create_user(
+            username=username, email=email or (employee.email if employee else ''), password=password
+        )
+        UserProfile.objects.create(
+            user=user, role=role, organization=profile.organization, employee=employee,
+            department=department if role == 'Department Head' else '',
+        )
+
+        return Response({'detail': 'Account created.', 'username': username, 'role': role}, status=status.HTTP_201_CREATED)
