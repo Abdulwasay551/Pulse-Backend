@@ -29,6 +29,12 @@ from core.permissions import (
     _role_is,
     owner_scope_id,
 )
+from integrations.checkr_provider import CheckrError
+from integrations.checkr_provider import initiate_check as initiate_checkr_check
+from integrations.dropbox_sign_provider import DropboxSignError
+from integrations.dropbox_sign_provider import send_for_signature as send_offer_for_signature
+from integrations.zoom_provider import ZoomError
+from integrations.zoom_provider import create_meeting as create_zoom_meeting
 from payroll_benefits.models import PayrollRun
 
 from .ai_screening import score_candidate
@@ -324,6 +330,22 @@ class CandidateViewSet(CsvImportExportMixin, OwnedModelViewSet):
         )
         return Response(CandidateSerializer(candidate, context={'request': request}).data)
 
+    @action(detail=True, methods=['post'], url_path='create-zoom-meeting')
+    def create_zoom_meeting(self, request, pk=None):
+        """Creates a real Zoom meeting for this candidate's interview via
+        the org's connected Server-to-Server OAuth app — returns the join
+        URL for the recruiter to share; nothing is persisted (Candidate has
+        no interview-scheduling fields yet), same "utility action, not a
+        stored feature" scope as screen() above."""
+        candidate = self.get_object()
+        try:
+            meeting = create_zoom_meeting(
+                owner_scope_id(request), topic=f'Interview — {candidate.name} for {candidate.role}'
+            )
+        except ZoomError as exc:
+            return Response({'detail': str(exc), 'code': 'zoom_not_configured'}, status=409)
+        return Response(meeting)
+
 
 class CandidatePortalView(APIView):
     """The public, no-login status page a candidate sees at their own
@@ -410,6 +432,26 @@ class OfferLetterViewSet(CsvImportExportMixin, OwnedModelViewSet):
             elif offer.status == 'Declined':
                 log_activity(uid, f'{offer.candidate.name} declined their offer letter', 'maroon')
 
+    @action(detail=True, methods=['post'], url_path='send-for-signature')
+    def send_for_signature(self, request, pk=None):
+        """Sends this offer through the org's connected Dropbox Sign
+        account for a real e-signature — status flips to 'Signed'
+        automatically via webhook once the candidate signs, instead of
+        being set by hand."""
+        offer = self.get_object()
+        try:
+            request_id = send_offer_for_signature(owner_scope_id(request), offer)
+        except DropboxSignError as exc:
+            return Response({'detail': str(exc), 'code': 'dropbox_sign_not_configured'}, status=409)
+        offer.dropbox_sign_request_id = request_id
+        if offer.status == 'Draft':
+            offer.status = 'Sent'
+        if not offer.sent_at:
+            offer.sent_at = timezone.now()
+        offer.save(update_fields=['dropbox_sign_request_id', 'status', 'sent_at', 'updated_at'])
+        log_activity(owner_scope_id(request), f'Offer letter sent to {offer.candidate.name} for e-signature', 'primary')
+        return Response(OfferLetterSerializer(offer, context={'request': request}).data)
+
 
 class BackgroundCheckViewSet(CsvImportExportMixin, OwnedModelViewSet):
     """Control Hierarchy Matrix (Background Check Integration row): SA=RWA,
@@ -466,6 +508,25 @@ class BackgroundCheckViewSet(CsvImportExportMixin, OwnedModelViewSet):
             check.save(update_fields=['completed_at'])
             tone = 'primary' if check.status == 'Cleared' else 'maroon'
             log_activity(owner_scope_id(self.request), f'{check.candidate.name} background check: {check.status}', tone)
+
+    @action(detail=True, methods=['post'], url_path='send-to-checkr')
+    def send_to_checkr(self, request, pk=None):
+        """Sends this record through the org's connected Checkr account for
+        a real screening — status then updates itself automatically as
+        Checkr's webhook reports progress, instead of being set by hand."""
+        check = self.get_object()
+        try:
+            result = initiate_checkr_check(owner_scope_id(request), check.candidate)
+        except CheckrError as exc:
+            return Response({'detail': str(exc), 'code': 'checkr_not_configured'}, status=409)
+        check.checkr_candidate_id = result['checkr_candidate_id']
+        check.checkr_report_id = result['checkr_report_id']
+        check.status = 'In Progress'
+        if not check.initiated_at:
+            check.initiated_at = timezone.now()
+        check.save(update_fields=['checkr_candidate_id', 'checkr_report_id', 'status', 'initiated_at', 'updated_at'])
+        log_activity(owner_scope_id(request), f'{check.candidate.name} background check sent to Checkr', 'neutral')
+        return Response(BackgroundCheckSerializer(check, context={'request': request}).data)
 
 
 class OnboardingViewSet(OwnedModelViewSet):

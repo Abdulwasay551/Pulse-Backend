@@ -188,10 +188,11 @@ class OfferLetter(models.Model):
     body = models.TextField(help_text='The offer letter content itself.')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='Draft')
     sent_at = models.DateTimeField(null=True, blank=True)
-    # Signature capture here is a manual "mark as signed" action, not a real
-    # e-signature vendor integration (DocuSign/HelloSign etc.) — that needs
-    # an account + API keys nobody has provisioned yet.
+    # Manual "mark as signed" stays available regardless — signed_at is set
+    # either by that action or automatically by the Dropbox Sign webhook
+    # once dropbox_sign_request_id is set (integrations.dropbox_sign_provider).
     signed_at = models.DateTimeField(null=True, blank=True)
+    dropbox_sign_request_id = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -222,13 +223,16 @@ class BackgroundCheck(models.Model):
     candidate = models.ForeignKey(Candidate, on_delete=models.CASCADE, related_name='background_checks')
     check_type = models.CharField(max_length=20, choices=CHECK_TYPE_CHOICES)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
-    # Internal tracking only — wiring up a real vendor (Checkr, Sterling,
-    # etc.) needs that vendor's account + API keys, which nobody has
-    # provisioned yet. This still gives real workflow value: initiate,
-    # track, and record the outcome.
     initiated_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
+    # Set once this check is sent through a connected Checkr account
+    # (integrations.checkr_provider) — blank means it's still a manual,
+    # internal-tracking-only record. The webhook receiver looks a report up
+    # by checkr_report_id to update status automatically as Checkr
+    # processes it.
+    checkr_candidate_id = models.CharField(max_length=64, blank=True)
+    checkr_report_id = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

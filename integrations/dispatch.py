@@ -74,11 +74,43 @@ def notify_all(owner_id, message, tone, event='activity'):
             continue
 
 
+def _test_credentials_only(provider_error_cls, test_fn):
+    """Adapts an action-integration's test_credentials(config) (Zoom/
+    Checkr/Dropbox Sign — no send_message-shaped sender to reuse) into the
+    same (config, event, message, tone) call signature _SENDERS uses, so
+    test_connection below can treat every integration uniformly."""
+
+    def _adapted(config, event, message, tone):
+        try:
+            test_fn(config)
+        except provider_error_cls as exc:
+            raise requests.exceptions.RequestException(str(exc)) from exc
+
+    return _adapted
+
+
+def _lazy_action_testers():
+    """Imported lazily rather than at module load — this module is pulled
+    in by core.activity.log_activity (every app's views import that very
+    early), so keeping its own top-level imports minimal avoids adding
+    those to Django's startup import chain for the common case (a
+    notification-only integration) that never needs them."""
+    from .checkr_provider import CheckrError, test_credentials as checkr_test
+    from .dropbox_sign_provider import DropboxSignError, test_credentials as dropbox_sign_test
+    from .zoom_provider import ZoomError, test_credentials as zoom_test
+
+    return {
+        'zoom': _test_credentials_only(ZoomError, zoom_test),
+        'checkr': _test_credentials_only(CheckrError, checkr_test),
+        'dropbox_sign': _test_credentials_only(DropboxSignError, dropbox_sign_test),
+    }
+
+
 def test_connection(connection):
     """Used by the "Test" button — unlike notify_all, this one surfaces its
     error, since the whole point is telling the user whether it worked."""
     meta = INTEGRATIONS.get(connection.integration_key)
-    sender = _SENDERS.get(connection.integration_key)
+    sender = _SENDERS.get(connection.integration_key) or _lazy_action_testers().get(connection.integration_key)
     if not meta or not sender:
         raise IntegrationError('Unknown integration.')
     try:

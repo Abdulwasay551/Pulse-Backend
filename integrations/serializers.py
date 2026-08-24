@@ -4,21 +4,38 @@ from .catalog import INTEGRATIONS
 from .models import IntegrationConnection
 
 
+_WEBHOOK_INTEGRATIONS = {'checkr': 'checkr-webhook', 'dropbox_sign': 'dropbox-sign-webhook'}
+
+
 class IntegrationConnectionSerializer(serializers.ModelSerializer):
     config = serializers.DictField(write_only=True)
     masked_config = serializers.SerializerMethodField()
     label_display = serializers.CharField(source='get_integration_key_display', read_only=True)
+    webhook_receiver_url = serializers.SerializerMethodField()
 
     class Meta:
         model = IntegrationConnection
         fields = [
             'id', 'integration_key', 'label_display', 'label', 'config', 'masked_config',
-            'is_enabled', 'created_at', 'updated_at',
+            'is_enabled', 'webhook_receiver_url', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_masked_config(self, obj):
         return obj.masked_config()
+
+    def get_webhook_receiver_url(self, obj):
+        """Only integrations that report status back asynchronously (Checkr,
+        Dropbox Sign) need the org to paste a URL back into that third
+        party's own dashboard — everything else is one-directional."""
+        url_name = _WEBHOOK_INTEGRATIONS.get(obj.integration_key)
+        if not url_name:
+            return None
+        from django.urls import reverse
+
+        request = self.context.get('request')
+        path = reverse(url_name, kwargs={'connection_id': obj.id})
+        return request.build_absolute_uri(path) if request else path
 
     def validate(self, attrs):
         integration_key = attrs.get('integration_key') or getattr(self.instance, 'integration_key', None)

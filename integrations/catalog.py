@@ -104,6 +104,63 @@ INTEGRATIONS = {
         # SMS is per-message priced and easy to make painful — critical-only.
         'notify_tones': NOTIFY_TONES_CRITICAL_ONLY,
     },
+    'zoom': {
+        'label': 'Zoom',
+        'category': 'Recruiting',
+        'description': 'Create a real Zoom meeting link for a candidate interview with one click.',
+        'setup_instructions': (
+            'Create a Zoom Server-to-Server OAuth app (no browser sign-in flow needed):\n'
+            '1. Go to marketplace.zoom.us/develop/create and choose "Server-to-Server OAuth".\n'
+            '2. Name it (e.g. "Pulse Interviews") and finish activating it.\n'
+            '3. Under Scopes, add meeting:write:meeting (and meeting:write:meeting:admin if you want to '
+            'create meetings on behalf of other users on the account).\n'
+            '4. Open the app\'s "App Credentials" tab and copy the Account ID, Client ID, and Client Secret below.'
+        ),
+        'fields': [
+            {'name': 'account_id', 'label': 'Account ID', 'type': 'text', 'secret': True, 'required': True},
+            {'name': 'client_id', 'label': 'Client ID', 'type': 'text', 'secret': True, 'required': True},
+            {'name': 'client_secret', 'label': 'Client Secret', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        # Action-only integration (invoked by "Create Zoom meeting"), not a
+        # passive log_activity subscriber.
+        'notify_tones': set(),
+    },
+    'checkr': {
+        'label': 'Checkr',
+        'category': 'Recruiting',
+        'description': 'Run real background checks on candidates — status updates flow back automatically.',
+        'setup_instructions': (
+            '1. Sign up / log in at dashboard.checkr.com.\n'
+            '2. Go to Account -> API Keys and copy your API key (use a Test key while trying this out).\n'
+            '3. Go to Account -> Webhooks, add a webhook pointing at the URL shown after you connect below, '
+            'and copy the Webhook Signing Secret it gives you.\n'
+            '4. Paste both below. Sending a background check will email the candidate and the report status '
+            'will update on its own as Checkr processes it.'
+        ),
+        'fields': [
+            {'name': 'api_key', 'label': 'API Key', 'type': 'password', 'secret': True, 'required': True},
+            {'name': 'webhook_secret', 'label': 'Webhook Signing Secret', 'type': 'password', 'secret': True, 'required': False},
+        ],
+        'notify_tones': set(),
+    },
+    'dropbox_sign': {
+        'label': 'Dropbox Sign',
+        'category': 'Recruiting',
+        'description': 'Send offer letters out for real, legally-binding e-signature.',
+        'setup_instructions': (
+            '1. Sign up / log in at app.hellosign.com (Dropbox Sign).\n'
+            '2. Go to Settings -> API and copy your API key.\n'
+            '3. On the same page, set the Event Callback URL to the URL shown after you connect below, and '
+            'copy the API Event Callback / Webhook secret it gives you.\n'
+            '4. Paste both below. Sending an offer letter will email the candidate a real signature request, '
+            'and it\'ll be marked Signed here automatically once they sign.'
+        ),
+        'fields': [
+            {'name': 'api_key', 'label': 'API Key', 'type': 'password', 'secret': True, 'required': True},
+            {'name': 'webhook_secret', 'label': 'Event Callback Secret', 'type': 'password', 'secret': True, 'required': False},
+        ],
+        'notify_tones': set(),
+    },
 }
 
 
