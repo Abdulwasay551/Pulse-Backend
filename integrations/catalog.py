@@ -63,6 +63,44 @@ INTEGRATIONS = {
         ],
         'notify_tones': NOTIFY_TONES_DEFAULT,
     },
+    'discord': {
+        'label': 'Discord',
+        'category': 'Notifications',
+        'description': 'Post key events (new hires, payroll runs, approvals, flags) to a Discord channel.',
+        'setup_instructions': (
+            'Create a Discord webhook:\n'
+            '1. In Discord, open the channel you want notifications in and click the gear icon (Edit Channel).\n'
+            '2. Go to Integrations -> Webhooks -> New Webhook.\n'
+            '3. Name it (e.g. "Pulse Notifications") and click Copy Webhook URL.\n'
+            '4. Paste that URL below.'
+        ),
+        'fields': [
+            {
+                'name': 'webhook_url', 'label': 'Webhook URL', 'type': 'url', 'secret': True, 'required': True,
+                'placeholder': 'https://discord.com/api/webhooks/…',
+            },
+        ],
+        'notify_tones': NOTIFY_TONES_DEFAULT,
+    },
+    'telegram': {
+        'label': 'Telegram',
+        'category': 'Notifications',
+        'description': 'Message a Telegram chat or channel for key events.',
+        'setup_instructions': (
+            'Create a Telegram bot and find your chat ID:\n'
+            '1. In Telegram, message @BotFather, send /newbot, and follow the prompts — it gives you a Bot Token.\n'
+            '2. Add your new bot to the chat/channel you want notifications in (or just message it directly).\n'
+            '3. Send it any message, then visit '
+            'https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates in a browser to find the "chat":{"id": ...} '
+            'value — that\'s your Chat ID.\n'
+            '4. Paste both below.'
+        ),
+        'fields': [
+            {'name': 'bot_token', 'label': 'Bot Token', 'type': 'password', 'secret': True, 'required': True, 'placeholder': '123456789:AAExampleTokenValue'},
+            {'name': 'chat_id', 'label': 'Chat ID', 'type': 'text', 'secret': False, 'required': True, 'placeholder': '-1001234567890'},
+        ],
+        'notify_tones': NOTIFY_TONES_DEFAULT,
+    },
     'webhook': {
         'label': 'Custom Webhook',
         'category': 'Automation',

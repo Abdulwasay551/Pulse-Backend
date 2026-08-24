@@ -46,11 +46,24 @@ def _send_twilio_sms(config, message):
     resp.raise_for_status()
 
 
+def _send_discord(config, message):
+    resp = requests.post(config['webhook_url'], json={'content': message}, timeout=_TIMEOUT)
+    resp.raise_for_status()
+
+
+def _send_telegram(config, message):
+    url = f"https://api.telegram.org/bot{config['bot_token']}/sendMessage"
+    resp = requests.post(url, json={'chat_id': config['chat_id'], 'text': message}, timeout=_TIMEOUT)
+    resp.raise_for_status()
+
+
 _SENDERS = {
     'slack': lambda config, event, message, tone: _send_slack(config, message),
     'teams': lambda config, event, message, tone: _send_teams(config, message),
     'webhook': lambda config, event, message, tone: _send_webhook(config, event, message, tone),
     'twilio': lambda config, event, message, tone: _send_twilio_sms(config, message),
+    'discord': lambda config, event, message, tone: _send_discord(config, message),
+    'telegram': lambda config, event, message, tone: _send_telegram(config, message),
 }
 
 
