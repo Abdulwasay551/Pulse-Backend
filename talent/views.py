@@ -461,7 +461,10 @@ class TalentDashboardSummaryView(APIView):
     not a blanket "Overview" code — e.g. Employee has zero access to
     Succession Planning on its own page, so it stays zeroed out here too)."""
 
-    permission_classes = [IsAuthenticated, IsHR | IsAuditorReadOnly | matrix_permission(mgr='R*', emp='R*')]
+    permission_classes = [
+        IsAuthenticated,
+        IsHR | IsAuditorReadOnly | IsRecruiter | IsDepartmentHeadReadOnly | matrix_permission(mgr='R*', emp='R*'),
+    ]
 
     def get(self, request):
         uid = owner_scope_id(request)

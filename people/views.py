@@ -5,7 +5,7 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -34,6 +34,19 @@ _BROAD_READ_ROLES = ('IT Manager', 'Finance Admin', 'Auditor', 'Recruiter')
 
 def _has_broad_read(request):
     return any(_role_is(request, r) for r in _BROAD_READ_ROLES)
+
+
+class _IsBroadReadOrDeptHead(BasePermission):
+    """Read-only access to PeopleDashboardSummaryView's aggregate numbers
+    for every role that now has at least a partial reach into People
+    Management from the dashboard nav — IT Manager/Finance Admin/
+    Recruiter's narrow per-row grants (_has_broad_read), plus Department
+    Head. The summary itself stays tenant-wide/unscoped for all of them,
+    same as every other module's dashboard-summary view already does for
+    its own secondary roles (e.g. Payroll & Benefits' for Auditor)."""
+
+    def has_permission(self, request, view):
+        return _has_broad_read(request) or _role_is(request, 'Department Head')
 
 from .certificates import render_recognition_certificate
 from .models import (
@@ -553,7 +566,7 @@ class PeopleDashboardSummaryView(APIView):
     """EVO-People's overview numbers, computed live from the user's own
     employee rows — nothing here is stored/cached."""
 
-    permission_classes = [IsAuthenticated, IsHR | IsAuditorReadOnly]
+    permission_classes = [IsAuthenticated, IsHR | IsAuditorReadOnly | _IsBroadReadOrDeptHead]
 
     def get(self, request):
         uid = owner_scope_id(request)

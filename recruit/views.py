@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.permissions import SAFE_METHODS, AllowAny, IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -699,6 +699,19 @@ def _relative_time(dt):
     return f'{int(seconds // 86400)}d ago'
 
 
+class _IsITManagerReadOnly(BasePermission):
+    """Read-only aggregate access to Recruit's dashboard summary for IT
+    Manager — their real matrix grant here is narrow (a handful of
+    onboarding/offboarding device/access categories, not the whole
+    module), but the module hub page they can now reach needs this
+    endpoint to render at all; same "secondary role gets broad read on
+    the aggregate view" precedent already used here for Finance Admin/
+    Auditor/Department Head."""
+
+    def has_permission(self, request, view):
+        return _role_is(request, 'IT Manager') and request.method in SAFE_METHODS
+
+
 class DashboardSummaryView(APIView):
     """Recruit's overview/analytics numbers, computed live from the
     user's own data — nothing here is stored/cached. "Revenue this month"
@@ -720,7 +733,13 @@ class DashboardSummaryView(APIView):
 
     permission_classes = [
         IsAuthenticated,
-        IsHR | IsRecruiter | IsFinanceAdminReadOnly | IsAuditorReadOnly | matrix_permission(mgr='R'),
+        IsHR
+        | IsRecruiter
+        | IsFinanceAdminReadOnly
+        | IsAuditorReadOnly
+        | IsDepartmentHeadReadOnly
+        | _IsITManagerReadOnly
+        | matrix_permission(mgr='R'),
     ]
 
     def get(self, request):

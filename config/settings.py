@@ -65,7 +65,7 @@ if '.vercel.app' not in ALLOWED_HOSTS:
 # hash/alias churn above, this is a stable, deliberately-chosen hostname
 # that isn't going anywhere, so it's hardcoded here rather than routed
 # through the (currently unset) DJANGO_ALLOWED_HOSTS env var.
-for _custom_host in ('pulsehcms.com', 'www.pulsehcms.com'):
+for _custom_host in ('pulsehcms.com', 'www.pulsehcms.com', 'api.pulsehcms.com'):
     if _custom_host not in ALLOWED_HOSTS:
         ALLOWED_HOSTS.append(_custom_host)
 
@@ -150,7 +150,7 @@ CORS_ALLOWED_ORIGINS = os.getenv(
 # product's real custom domain is a stable hostname worth hardcoding rather
 # than depending on the env var already holding it correctly.
 CORS_ALLOWED_ORIGIN_REGEXES = [r'^https://([\w-]+\.)*vercel\.app$']
-for _custom_origin in ('https://pulsehcms.com', 'https://www.pulsehcms.com'):
+for _custom_origin in ('https://pulsehcms.com', 'https://www.pulsehcms.com', 'https://api.pulsehcms.com'):
     if _custom_origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(_custom_origin)
 
