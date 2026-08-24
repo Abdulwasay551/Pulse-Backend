@@ -8,7 +8,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from integrations.email_provider import send_org_email
+from integrations.email_provider import EmailProviderError, has_working_email, send_org_email
 from people.models import Employee
 
 from .models import EmployeeInvite, Organization, UserProfile
@@ -42,23 +42,45 @@ class EmployeeInviteView(APIView):
         if not employee_id or not email:
             return Response({'detail': 'employee and email are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        employee = get_object_or_404(Employee, id=employee_id, owner_id=owner_scope_id(request))
+        uid = owner_scope_id(request)
+        # HR is standing right here watching this action, unlike a public
+        # password-reset request — so rather than silently "succeeding"
+        # with an email that goes nowhere (console backend delivers
+        # nothing), refuse up front and point them at the fix.
+        if not has_working_email(uid):
+            return Response(
+                {
+                    'detail': 'No email provider connected — connect one to actually send invites.',
+                    'code': 'smtp_not_configured',
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        employee = get_object_or_404(Employee, id=employee_id, owner_id=uid)
         profile = get_or_create_hr_profile(request.user)
 
         invite = EmployeeInvite.objects.create(
             organization=profile.organization, employee=employee, email=email
         )
         signup_link = f'{settings.FRONTEND_URL}/signup?invite={invite.token}'
-        send_org_email(
-            owner_scope_id(request),
-            subject=f'You’re invited to join {profile.organization.name} on Pulse',
-            message=(
-                f'{employee.name}, you’ve been invited to set up your employee account for '
-                f'{profile.organization.name}.\n\nCreate your login here: {signup_link}\n\n'
-                f'If you weren’t expecting this, you can safely ignore this email.'
-            ),
-            recipient_list=[email],
-        )
+        try:
+            send_org_email(
+                uid,
+                subject=f'You’re invited to join {profile.organization.name} on Pulse',
+                message=(
+                    f'{employee.name}, you’ve been invited to set up your employee account for '
+                    f'{profile.organization.name}.\n\nCreate your login here: {signup_link}\n\n'
+                    f'If you weren’t expecting this, you can safely ignore this email.'
+                ),
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except EmailProviderError as exc:
+            invite.delete()
+            return Response(
+                {'detail': f'Could not send the invite: {exc}', 'code': 'smtp_send_failed'},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         return Response({'detail': 'Invite sent.', 'signup_link': signup_link})
 
 
