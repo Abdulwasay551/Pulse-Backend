@@ -163,6 +163,13 @@ CORS_ALLOW_CREDENTIALS = True
 # page, and used as the base for Wagtail's headless preview redirects.
 FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
+# One Pulse-owned Google Cloud OAuth client (unlike every other integration
+# in integrations/catalog.py, this is a true OAuth flow — Calendar/Meet has
+# no per-org static API key to paste). Each org individually authorizes
+# this one app via Google's consent screen; see integrations/google_oauth.py.
+GOOGLE_OAUTH_CLIENT_ID = os.getenv('GOOGLE_OAUTH_CLIENT_ID', '')
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET', '')
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [

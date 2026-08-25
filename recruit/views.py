@@ -1,5 +1,5 @@
 import uuid
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from django.db.models import Sum
 from django.http import HttpResponse
@@ -33,6 +33,7 @@ from integrations.checkr_provider import CheckrError
 from integrations.checkr_provider import initiate_check as initiate_checkr_check
 from integrations.dropbox_sign_provider import DropboxSignError
 from integrations.dropbox_sign_provider import send_for_signature as send_offer_for_signature
+from integrations.google_oauth import GoogleOAuthError, create_calendar_event_with_meet
 from integrations.hackerrank_provider import HackerRankError
 from integrations.hackerrank_provider import invite_candidate as invite_to_hackerrank
 from integrations.hackerrank_provider import refresh_score as refresh_hackerrank_score
@@ -704,6 +705,26 @@ class OnboardingTaskViewSet(viewsets.ModelViewSet):
         response = HttpResponse(ics_body, content_type='text/calendar')
         response['Content-Disposition'] = f'attachment; filename="{task.title[:50]}.ics"'
         return response
+
+    @action(detail=True, methods=['post'], url_path='google-calendar-invite')
+    def google_calendar_invite(self, request, pk=None):
+        """The real alternative to ics() above, once an org has connected
+        Google Calendar — creates an actual event with a live Google Meet
+        link and emails the candidate an invite directly, instead of a
+        downloadable file someone has to open themselves."""
+        task = self.get_object()
+        event_date = task.due_date or timezone.now().date()
+        start_dt = timezone.make_aware(datetime.combine(event_date, time(hour=10)))
+        end_dt = start_dt + timedelta(hours=1)
+        candidate = task.onboarding.candidate
+        attendees = [candidate.email] if candidate.email else []
+        try:
+            result = create_calendar_event_with_meet(
+                owner_scope_id(request), task.title, task.notes, start_dt, end_dt, attendees
+            )
+        except GoogleOAuthError as exc:
+            return Response({'detail': str(exc), 'code': 'google_not_configured'}, status=409)
+        return Response(result)
 
 
 class OffboardingViewSet(OwnedModelViewSet):

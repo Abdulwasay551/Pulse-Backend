@@ -58,3 +58,36 @@ class IntegrationConnection(models.Model):
             else:
                 masked[name] = value
         return masked
+
+
+class GoogleOAuthConnection(models.Model):
+    """A true OAuth connection — architecturally different from
+    IntegrationConnection above (which assumes a static form the org fills
+    in once): Google issues a short-lived access_token plus a long-lived
+    refresh_token via a real consent-screen redirect, not a pasted key.
+    One Pulse-owned OAuth client (settings.GOOGLE_OAUTH_CLIENT_ID/SECRET)
+    is shared across every org; each org individually authorizes it."""
+
+    owner = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='google_oauth_connection')
+    google_email = models.EmailField(blank=True)
+    encrypted_access_token = models.BinaryField()
+    encrypted_refresh_token = models.BinaryField()
+    token_expires_at = models.DateTimeField()
+    scope = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'Google — {self.google_email or self.owner_id}'
+
+    def set_access_token(self, plaintext: str):
+        self.encrypted_access_token = encrypt_secret(plaintext)
+
+    def get_access_token(self) -> str:
+        return decrypt_secret(self.encrypted_access_token)
+
+    def set_refresh_token(self, plaintext: str):
+        self.encrypted_refresh_token = encrypt_secret(plaintext)
+
+    def get_refresh_token(self) -> str:
+        return decrypt_secret(self.encrypted_refresh_token)
