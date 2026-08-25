@@ -11,6 +11,8 @@ from core.activity import log_activity
 from core.csv_io import CsvImportExportMixin, resolve_employee, resolve_related
 from core.models import ActivityLog
 from integrations.fx_provider import FxProviderError, fetch_live_rates
+from integrations.wise_provider import WiseError
+from integrations.wise_provider import get_quote as get_wise_quote
 from core.permissions import (
     IsAuditorReadOnly,
     IsDepartmentHeadReadOnly,
@@ -248,6 +250,27 @@ class ExchangeRateViewSet(viewsets.ModelViewSet):
             ExchangeRate.objects.filter(owner_id=uid, currency=code).update(rate_to_usd=rate, updated_at=timezone.now())
             updated.append(code)
         return Response({'updated': updated})
+
+    @action(detail=False, methods=['get'], url_path='wise-quote')
+    def wise_quote(self, request):
+        """A real, live Wise transfer quote — read-only, moves nothing.
+        Complements convert() above: that's this org's own manually-set/
+        synced rates, this is what an actual cross-border transfer would
+        really cost right now via the org's connected Wise account."""
+        amount_raw = request.query_params.get('amount')
+        from_currency = (request.query_params.get('from') or '').upper()
+        to_currency = (request.query_params.get('to') or '').upper()
+        if not amount_raw or not from_currency or not to_currency:
+            return Response({'detail': 'amount, from, and to are required.'}, status=400)
+        try:
+            amount = float(amount_raw)
+        except (TypeError, ValueError):
+            return Response({'detail': 'A numeric amount is required.'}, status=400)
+        try:
+            quote = get_wise_quote(owner_scope_id(request), from_currency, to_currency, amount)
+        except WiseError as exc:
+            return Response({'detail': str(exc), 'code': 'wise_not_configured'}, status=409)
+        return Response(quote)
 
 
 class TaxProfileViewSet(CsvImportExportMixin, viewsets.ModelViewSet):

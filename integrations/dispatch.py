@@ -109,8 +109,11 @@ def _lazy_action_testers():
     those to Django's startup import chain for the common case (a
     notification-only integration) that never needs them."""
     from .checkr_provider import CheckrError, test_credentials as checkr_test
+    from .deel_provider import DeelError, test_credentials as deel_test
     from .dropbox_sign_provider import DropboxSignError, test_credentials as dropbox_sign_test
     from .hackerrank_provider import HackerRankError, test_credentials as hackerrank_test
+    from .remote_provider import RemoteError, test_credentials as remote_test
+    from .wise_provider import WiseError, test_credentials as wise_test
     from .zoom_provider import ZoomError, test_credentials as zoom_test
 
     return {
@@ -118,6 +121,9 @@ def _lazy_action_testers():
         'checkr': _test_credentials_only(CheckrError, checkr_test),
         'dropbox_sign': _test_credentials_only(DropboxSignError, dropbox_sign_test),
         'hackerrank': _test_credentials_only(HackerRankError, hackerrank_test),
+        'wise': _test_credentials_only(WiseError, wise_test),
+        'deel': _test_credentials_only(DeelError, deel_test),
+        'remote': _test_credentials_only(RemoteError, remote_test),
     }
 
 

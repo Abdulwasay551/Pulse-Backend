@@ -167,6 +167,50 @@ INTEGRATIONS = {
         ],
         'notify_tones': set(),
     },
+    'wise': {
+        'label': 'Wise',
+        'category': 'Payroll',
+        'description': 'Get real international transfer quotes and verify recipient bank details for cross-border payroll.',
+        'setup_instructions': (
+            '1. Sign up / log in at wise.com (a Wise Business account is recommended for payroll use).\n'
+            '2. Go to Settings -> API tokens and click "Create new token" (choose a Full access token if you '
+            'want to verify recipient accounts, or Read-only if you only want quotes).\n'
+            '3. Paste it below. Nothing here moves money — quotes and verification are both read-only checks '
+            'against Wise\'s live rates and account-validation rules.'
+        ),
+        'fields': [
+            {'name': 'api_token', 'label': 'API Token', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'deel': {
+        'label': 'Deel',
+        'category': 'Payroll',
+        'description': 'Connect your Deel account to confirm live access to your EOR/contractor workforce data.',
+        'setup_instructions': (
+            '1. Log in to app.deel.com as an account admin.\n'
+            '2. Go to Developer Center (or Settings -> API) and generate a new API key.\n'
+            '3. Paste it below.'
+        ),
+        'fields': [
+            {'name': 'api_token', 'label': 'API Key', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'remote': {
+        'label': 'Remote',
+        'category': 'Payroll',
+        'description': 'Connect your Remote account to confirm live access to your EOR workforce data.',
+        'setup_instructions': (
+            '1. Log in to app.remote.com as an account admin.\n'
+            '2. Go to Integrations & API -> API keys and create a new key.\n'
+            '3. Paste it below.'
+        ),
+        'fields': [
+            {'name': 'api_token', 'label': 'API Key', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
     'hackerrank': {
         'label': 'HackerRank',
         'category': 'Recruiting',

@@ -34,7 +34,10 @@ class IntegrationConnectionViewSet(viewsets.ModelViewSet):
             test_connection(connection)
         except IntegrationError as exc:
             return Response({'ok': False, 'detail': str(exc)})
-        return Response({'ok': True, 'detail': 'Test notification sent.'})
+        # "Sent" reads oddly for the connection-only integrations (Zoom,
+        # Deel, Remote, etc. — nothing was actually sent, just verified) —
+        # a neutral "connected" message is accurate for all of them.
+        return Response({'ok': True, 'detail': 'Connected — credentials verified.'})
 
 
 class IntegrationCatalogView(APIView):
