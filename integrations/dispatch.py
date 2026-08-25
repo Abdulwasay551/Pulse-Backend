@@ -115,7 +115,10 @@ def _lazy_action_testers():
     from .checkr_provider import CheckrError, test_credentials as checkr_test
     from .deel_provider import DeelError, test_credentials as deel_test
     from .dropbox_sign_provider import DropboxSignError, test_credentials as dropbox_sign_test
+    from .gusto_provider import GustoError, test_credentials as gusto_test
     from .hackerrank_provider import HackerRankError, test_credentials as hackerrank_test
+    from .indeed_provider import IndeedError, test_credentials as indeed_test
+    from .linkedin_learning_provider import LinkedInLearningError, test_credentials as linkedin_learning_test
     from .remote_provider import RemoteError, test_credentials as remote_test
     from .surveymonkey_provider import SurveyMonkeyError, test_credentials as surveymonkey_test
     from .wise_provider import WiseError, test_credentials as wise_test
@@ -130,6 +133,9 @@ def _lazy_action_testers():
         'deel': _test_credentials_only(DeelError, deel_test),
         'remote': _test_credentials_only(RemoteError, remote_test),
         'surveymonkey': _test_credentials_only(SurveyMonkeyError, surveymonkey_test),
+        'linkedin_learning': _test_credentials_only(LinkedInLearningError, linkedin_learning_test),
+        'indeed': _test_credentials_only(IndeedError, indeed_test),
+        'gusto': _test_credentials_only(GustoError, gusto_test),
     }
 
 

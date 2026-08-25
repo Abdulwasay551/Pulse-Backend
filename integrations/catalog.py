@@ -325,6 +325,65 @@ INTEGRATIONS = {
         # passive log_activity subscriber.
         'notify_tones': set(),
     },
+    'linkedin_learning': {
+        'label': 'LinkedIn Learning',
+        'category': 'Talent',
+        'description': 'Connect your LinkedIn Learning account to confirm live access to your course engagement data.',
+        'setup_instructions': (
+            'Generate a Reporting API application from your own LinkedIn Learning admin console '
+            '(self-serve, no LinkedIn approval of Pulse needed):\n'
+            '1. Log in to LinkedIn Learning and select "Go to Admin".\n'
+            '2. In the side menu, select "Access content and reports via API" and expand '
+            '"Generate LinkedIn Learning REST API Application".\n'
+            '3. Click "Add application", name it (e.g. "Pulse Reporting"), and under "Choose keys" '
+            'select "Report".\n'
+            '4. Accept the terms, then copy the generated Client Id and Client Secret below.'
+        ),
+        'fields': [
+            {'name': 'client_id', 'label': 'Client Id', 'type': 'text', 'secret': True, 'required': True},
+            {'name': 'client_secret', 'label': 'Client Secret', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'indeed': {
+        'label': 'Indeed',
+        'category': 'Talent',
+        'description': 'Connect your Indeed Employer API credentials to confirm live access to your account.',
+        'setup_instructions': (
+            'This needs an Indeed Employer API app — Indeed\'s own docs describe getting one through '
+            'their Partner Console after becoming an Indeed partner, so this may require your '
+            'organization\'s existing Indeed partnership rather than a self-serve toggle:\n'
+            '1. Sign in to Indeed\'s Partner Console with your Indeed account.\n'
+            '2. Select your app from the dashboard and open the Credentials tab.\n'
+            '3. Copy the Client ID and Client Secret below.\n'
+            'If your organization doesn\'t have Partner Console access yet, that\'s the step to '
+            'resolve with Indeed first — this form will tell you clearly if the credentials don\'t work.'
+        ),
+        'fields': [
+            {'name': 'client_id', 'label': 'Client ID', 'type': 'text', 'secret': True, 'required': True},
+            {'name': 'client_secret', 'label': 'Client Secret', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'gusto': {
+        'label': 'Gusto',
+        'category': 'Payroll',
+        'description': 'Connect a Gusto access token to confirm live access to your payroll account.',
+        'setup_instructions': (
+            'Gusto\'s API is OAuth-only (no static API key) and typically requires a Gusto Embedded '
+            'Payroll partnership before it\'s usable in production — check with your Gusto contact if '
+            'you\'re not sure your organization has this yet:\n'
+            '1. Complete Gusto\'s OAuth authorization flow for your own registered Gusto app (via '
+            'Gusto\'s developer docs) to obtain an access token.\n'
+            '2. Paste that access token below.\n'
+            'Gusto access tokens expire periodically — if the Test button here starts failing, '
+            'generate a fresh token and reconnect.'
+        ),
+        'fields': [
+            {'name': 'access_token', 'label': 'Access Token', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
 }
 
 
