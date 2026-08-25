@@ -122,6 +122,28 @@ INTEGRATIONS = {
         ],
         'notify_tones': NOTIFY_TONES_DEFAULT,
     },
+    'zapier': {
+        'label': 'Zapier',
+        'category': 'Automation',
+        'description': (
+            'Trigger a Zap for every notable event — new hires, payroll runs, approvals, flags — '
+            'and fan it out to the 7,000+ apps Zapier connects to.'
+        ),
+        'setup_instructions': (
+            'Uses Zapier\'s own "Webhooks by Zapier" trigger — no Zapier developer account needed:\n'
+            '1. In Zapier, create a new Zap and choose "Webhooks by Zapier" as the trigger app.\n'
+            '2. Pick the "Catch Hook" event, then copy the custom webhook URL it gives you.\n'
+            '3. Paste it below. Every notable event sends {"event": "...", "message": "...", "tone": "..."} '
+            'as the Zap\'s trigger payload — map those fields to whatever action you build downstream.'
+        ),
+        'fields': [
+            {
+                'name': 'webhook_url', 'label': 'Webhook URL', 'type': 'url', 'secret': True, 'required': True,
+                'placeholder': 'https://hooks.zapier.com/hooks/catch/…',
+            },
+        ],
+        'notify_tones': NOTIFY_TONES_DEFAULT,
+    },
     'twilio': {
         'label': 'Twilio (SMS)',
         'category': 'Notifications',
@@ -283,6 +305,24 @@ INTEGRATIONS = {
             {'name': 'api_key', 'label': 'API Key', 'type': 'password', 'secret': True, 'required': True},
             {'name': 'webhook_secret', 'label': 'Event Callback Secret', 'type': 'password', 'secret': True, 'required': False},
         ],
+        'notify_tones': set(),
+    },
+    'surveymonkey': {
+        'label': 'SurveyMonkey',
+        'category': 'People',
+        'description': 'Pull in your existing SurveyMonkey surveys and response counts alongside Pulse\'s own Surveys page.',
+        'setup_instructions': (
+            'Create a SurveyMonkey Private App (self-serve, no partner approval needed):\n'
+            '1. Log in at surveymonkey.com and go to Account -> API -> Add a New App.\n'
+            '2. Choose "Private App" (for connecting your own account to an internal tool like this one).\n'
+            '3. Under Scopes, enable at least "View Surveys" (read-only is all this needs).\n'
+            '4. Copy the Access Token it generates and paste it below.'
+        ),
+        'fields': [
+            {'name': 'api_token', 'label': 'Access Token', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        # Read-only sync surfaced on demand from the Surveys page, not a
+        # passive log_activity subscriber.
         'notify_tones': set(),
     },
 }

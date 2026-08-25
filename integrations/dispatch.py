@@ -61,6 +61,10 @@ _SENDERS = {
     'slack': lambda config, event, message, tone: _send_slack(config, message),
     'teams': lambda config, event, message, tone: _send_teams(config, message),
     'webhook': lambda config, event, message, tone: _send_webhook(config, event, message, tone),
+    # Zapier's "Webhooks by Zapier" trigger is just a URL that accepts the
+    # same JSON POST shape as the generic Custom Webhook — no separate
+    # sender needed.
+    'zapier': lambda config, event, message, tone: _send_webhook(config, event, message, tone),
     'twilio': lambda config, event, message, tone: _send_twilio_sms(config, message),
     'discord': lambda config, event, message, tone: _send_discord(config, message),
     'telegram': lambda config, event, message, tone: _send_telegram(config, message),
@@ -113,6 +117,7 @@ def _lazy_action_testers():
     from .dropbox_sign_provider import DropboxSignError, test_credentials as dropbox_sign_test
     from .hackerrank_provider import HackerRankError, test_credentials as hackerrank_test
     from .remote_provider import RemoteError, test_credentials as remote_test
+    from .surveymonkey_provider import SurveyMonkeyError, test_credentials as surveymonkey_test
     from .wise_provider import WiseError, test_credentials as wise_test
     from .zoom_provider import ZoomError, test_credentials as zoom_test
 
@@ -124,6 +129,7 @@ def _lazy_action_testers():
         'wise': _test_credentials_only(WiseError, wise_test),
         'deel': _test_credentials_only(DeelError, deel_test),
         'remote': _test_credentials_only(RemoteError, remote_test),
+        'surveymonkey': _test_credentials_only(SurveyMonkeyError, surveymonkey_test),
     }
 
 

@@ -395,6 +395,16 @@ class SurveyViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
 
+    @action(detail=False, methods=['get'], url_path='surveymonkey')
+    def surveymonkey_surveys(self, request):
+        from integrations.surveymonkey_provider import SurveyMonkeyError, list_surveys
+
+        try:
+            surveys = list_surveys(owner_scope_id(request))
+        except SurveyMonkeyError as exc:
+            return Response({'detail': str(exc)}, status=409)
+        return Response(surveys)
+
 
 class SurveyResponseViewSet(viewsets.ModelViewSet):
     """No IsOwner — SurveyResponse has no `owner` field of its own, scoped
