@@ -46,23 +46,47 @@ _SECTIONS = [
 ]
 
 
-def _methods_for_callback(callback):
+def _inspect_callback(callback):
     """Router-generated ViewSet endpoints carry an `actions` dict (set by
     ViewSet.as_view({...})) mapping http method -> viewset method name —
-    read directly, no instantiation needed. Everything else (APIView,
-    @api_view-wrapped functions) exposes `.cls`, which is safe to
-    instantiate (constructors don't touch the DB) to read the same
-    `allowed_methods` property DRF itself uses."""
+    read directly, no instantiation needed, for methods. Everything else
+    (APIView, @api_view-wrapped functions) exposes `.cls`, which is safe
+    to instantiate (constructors don't touch the DB) to read the same
+    `allowed_methods` property DRF itself uses, plus permission_classes
+    (whether AllowAny is present, i.e. genuinely public) and the class's
+    own docstring as a real, non-fabricated description."""
     actions = getattr(callback, 'actions', None)
     if actions:
-        return sorted(m.upper() for m in actions.keys())
+        methods = sorted(m.upper() for m in actions.keys())
+    else:
+        methods = []
+
     cls = getattr(callback, 'cls', None)
+    auth_required = True
+    description = ''
     if cls is not None:
         try:
-            return sorted(getattr(cls(), 'allowed_methods', []))
+            instance = cls()
+            if not actions:
+                methods = sorted(getattr(instance, 'allowed_methods', []))
+            perm_classes = getattr(instance, 'permission_classes', [])
+            auth_required = not any(getattr(p, '__name__', '') == 'AllowAny' for p in perm_classes)
         except Exception:
-            return []
-    return []
+            pass
+        # Collapse all whitespace (these docstrings wrap across lines) before
+        # taking the first sentence — several views here have long,
+        # multi-paragraph docstrings written for future maintainers, not
+        # this directory, and splitting on raw newlines first would cut
+        # mid-sentence wherever the docstring happened to wrap.
+        doc = ' '.join((cls.__doc__ or '').split())
+        if doc:
+            description = doc.split('. ')[0].rstrip('.')[:220] + '.'
+
+    return {
+        'methods': [m for m in methods if m not in ('OPTIONS', 'HEAD')],
+        'auth_required': auth_required,
+        'description': description,
+    }
 
 
 def _walk(patterns, prefix, out):
@@ -75,11 +99,11 @@ def _walk(patterns, prefix, out):
             # ".<format>"-suffixed duplicate of every router endpoint.
             if p.name == 'api-root' or _FORMAT_SUFFIX_MARKER in raw:
                 continue
-            methods = [m for m in _methods_for_callback(p.callback) if m not in ('OPTIONS', 'HEAD')]
+            info = _inspect_callback(p.callback)
             out.append({
                 'path': '/' + _prettify_groups(prefix + _clean_segment(raw)),
                 'name': p.name,
-                'methods': methods,
+                **info,
             })
 
 

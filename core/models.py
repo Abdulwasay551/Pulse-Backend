@@ -197,3 +197,30 @@ class ApiToken(models.Model):
 
     def __str__(self):
         return f'{self.label or "API token"} ({self.prefix}…) — {self.user_id}'
+
+
+NOTIFICATION_PREFERENCE_DEFAULTS = {
+    'new_candidate_applications': True,
+    'requisition_status_changes': True,
+    'payroll_run_reminders': True,
+    'weekly_desk_summary_email': False,
+}
+
+
+class NotificationPreference(models.Model):
+    """One row per user — which of the fixed set of email notification
+    types (see NOTIFICATION_PREFERENCE_DEFAULTS) they want to receive.
+    Deliberately per-user, not per-org: two logins in the same
+    organization may want different notifications. A missing key in
+    `prefs` (e.g. a brand-new preference type added later) falls back to
+    that type's default rather than needing a data migration to backfill
+    every existing row."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notification_preference')
+    prefs = models.JSONField(default=dict, blank=True)
+
+    def __str__(self):
+        return f'Notification preferences — {self.user_id}'
+
+    def resolved(self) -> dict:
+        return {**NOTIFICATION_PREFERENCE_DEFAULTS, **self.prefs}

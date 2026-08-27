@@ -24,7 +24,7 @@ from .my_views import (
     MySupportTicketsView,
     MyTalentView,
 )
-from .views import AnnouncementViewSet, ApiTokenViewSet
+from .views import AnnouncementViewSet, ApiTokenViewSet, NotificationPreferencesView
 
 router = DefaultRouter()
 router.register('announcements', AnnouncementViewSet, basename='announcement')
@@ -55,5 +55,6 @@ urlpatterns = [
     path('my/support-tickets/', MySupportTicketsView.as_view(), name='my-support-tickets'),
     path('org-health/', OrgHealthView.as_view(), name='org-health'),
     path('banner-info/', BannerInfoView.as_view(), name='banner-info'),
+    path('notification-preferences/', NotificationPreferencesView.as_view(), name='notification-preferences'),
     path('', include(router.urls)),
 ]

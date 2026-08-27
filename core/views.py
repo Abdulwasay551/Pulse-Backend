@@ -5,9 +5,10 @@ from rest_framework import mixins, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .api_auth import generate_token
-from .models import ApiToken, Announcement
+from .models import ApiToken, Announcement, NOTIFICATION_PREFERENCE_DEFAULTS, NotificationPreference
 from .permissions import IsOwner
 from .serializers import ApiTokenSerializer, AnnouncementSerializer
 
@@ -64,3 +65,22 @@ class ApiTokenViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.G
             token.revoked_at = timezone.now()
             token.save(update_fields=['revoked_at'])
         return Response(ApiTokenSerializer(token).data)
+
+
+class NotificationPreferencesView(APIView):
+    """Singleton-per-user resource — no id in the URL, GET/PATCH always
+    act on the signed-in user's own row (get-or-create, since most users
+    never touch this and shouldn't need a row pre-created for them)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        pref, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        return Response(pref.resolved())
+
+    def patch(self, request):
+        pref, _ = NotificationPreference.objects.get_or_create(user=request.user)
+        updates = {k: v for k, v in request.data.items() if k in NOTIFICATION_PREFERENCE_DEFAULTS and isinstance(v, bool)}
+        pref.prefs = {**pref.prefs, **updates}
+        pref.save(update_fields=['prefs'])
+        return Response(pref.resolved())
