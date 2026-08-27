@@ -10,7 +10,10 @@ from core.access_matrix import matrix_permission, scoped_queryset
 from core.activity import log_activity
 from core.csv_io import CsvImportExportMixin, resolve_employee, resolve_related
 from core.models import ActivityLog
+from integrations.deel_provider import DeelError, list_workers as list_deel_workers
 from integrations.fx_provider import FxProviderError, fetch_live_rates
+from integrations.gusto_provider import GustoError, list_employees as list_gusto_employees
+from integrations.remote_provider import RemoteError, list_employments as list_remote_employments
 from integrations.wise_provider import WiseError
 from integrations.wise_provider import get_quote as get_wise_quote
 from core.permissions import (
@@ -588,6 +591,32 @@ class BenefitClaimViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
             instance.resolved_at = timezone.now()
             instance.save(update_fields=['resolved_at'])
             log_activity(owner_scope_id(self.request), f'{instance.claim_type} claim {instance.status.lower()}', 'primary')
+
+
+class ExternalWorkforceView(APIView):
+    """Real, live workforce data pulled from a connected Deel/Remote/Gusto
+    account — read-only, nothing here is stored. Powers the Payroll &
+    Benefits dashboard's per-provider "connect or view" panels; the
+    provider-not-configured case is a 409 (not a 404) so the frontend can
+    tell "not connected" apart from "genuinely no data"."""
+
+    permission_classes = [IsAuthenticated, IsHR | IsFinanceAdmin]
+    _PROVIDERS = {
+        'deel': (list_deel_workers, DeelError),
+        'remote': (list_remote_employments, RemoteError),
+        'gusto': (list_gusto_employees, GustoError),
+    }
+
+    def get(self, request, provider):
+        entry = self._PROVIDERS.get(provider)
+        if not entry:
+            return Response({'detail': 'Unknown provider.'}, status=404)
+        list_fn, error_cls = entry
+        try:
+            data = list_fn(owner_scope_id(request))
+        except error_cls as exc:
+            return Response({'detail': str(exc)}, status=409)
+        return Response(data)
 
 
 class PayrollBenefitsDashboardSummaryView(APIView):

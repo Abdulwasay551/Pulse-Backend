@@ -170,3 +170,30 @@ class DemoRequest(models.Model):
 
     def __str__(self):
         return f'{self.full_name} ({self.business_name})'
+
+
+class ApiToken(models.Model):
+    """A personal access token for calling Pulse's own REST API directly
+    (Postman, scripts, the public API docs page) — deliberately scoped to
+    the *issuing user's own* role/permissions rather than a fresh
+    permission system: core.api_auth.ApiTokenAuthentication resolves a
+    valid token straight to `request.user`, so every existing permission
+    check (IsOwner, IsHR, matrix_permission, ...) applies completely
+    unchanged. Only the hash is stored — like a password, the plaintext
+    value is shown exactly once, at creation."""
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='api_tokens')
+    label = models.CharField(max_length=100, blank=True)
+    # First 8 chars of the plaintext token, kept unhashed purely so the
+    # user can tell tokens apart in a list without ever seeing the rest.
+    prefix = models.CharField(max_length=8)
+    hashed_token = models.CharField(max_length=128, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.label or "API token"} ({self.prefix}…) — {self.user_id}'

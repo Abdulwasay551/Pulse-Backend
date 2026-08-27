@@ -8,6 +8,7 @@ from .views import (
     BenefitPlanViewSet,
     ComplianceEventViewSet,
     ExchangeRateViewSet,
+    ExternalWorkforceView,
     PayrollBenefitsDashboardSummaryView,
     PayrollRunViewSet,
     TaxProfileViewSet,
@@ -25,5 +26,6 @@ router.register('benefit-claims', BenefitClaimViewSet, basename='benefit-claim')
 
 urlpatterns = [
     path('dashboard-summary/', PayrollBenefitsDashboardSummaryView.as_view(), name='payroll-benefits-dashboard-summary'),
+    path('external-workforce/<str:provider>/', ExternalWorkforceView.as_view(), name='payroll-external-workforce'),
     path('', include(router.urls)),
 ]

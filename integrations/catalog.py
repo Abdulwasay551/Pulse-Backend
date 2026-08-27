@@ -44,25 +44,26 @@ INTEGRATIONS = {
         ],
         'notify_tones': NOTIFY_TONES_DEFAULT,
     },
-    'teams': {
-        'label': 'Microsoft Teams',
-        'category': 'Notifications',
-        'description': 'Post key events to a Microsoft Teams channel.',
-        'setup_instructions': (
-            'Create a Teams Incoming Webhook:\n'
-            '1. In Teams, open the channel you want notifications in, click "…" -> "Workflows".\n'
-            '2. Search for and select "Post to a channel when a webhook request is received".\n'
-            '3. Follow the prompts to create it, choosing this channel as the destination.\n'
-            '4. Copy the webhook URL it gives you at the end and paste it below.'
-        ),
-        'fields': [
-            {
-                'name': 'webhook_url', 'label': 'Webhook URL', 'type': 'url', 'secret': True, 'required': True,
-                'placeholder': 'https://….webhook.office.com/webhookb2/…',
-            },
-        ],
-        'notify_tones': NOTIFY_TONES_DEFAULT,
-    },
+    # Temporarily disabled — remove this comment block to bring Teams back.
+    # 'teams': {
+    #     'label': 'Microsoft Teams',
+    #     'category': 'Notifications',
+    #     'description': 'Post key events to a Microsoft Teams channel.',
+    #     'setup_instructions': (
+    #         'Create a Teams Incoming Webhook:\n'
+    #         '1. In Teams, open the channel you want notifications in, click "…" -> "Workflows".\n'
+    #         '2. Search for and select "Post to a channel when a webhook request is received".\n'
+    #         '3. Follow the prompts to create it, choosing this channel as the destination.\n'
+    #         '4. Copy the webhook URL it gives you at the end and paste it below.'
+    #     ),
+    #     'fields': [
+    #         {
+    #             'name': 'webhook_url', 'label': 'Webhook URL', 'type': 'url', 'secret': True, 'required': True,
+    #             'placeholder': 'https://….webhook.office.com/webhookb2/…',
+    #         },
+    #     ],
+    #     'notify_tones': NOTIFY_TONES_DEFAULT,
+    # },
     'discord': {
         'label': 'Discord',
         'category': 'Notifications',

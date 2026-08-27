@@ -295,6 +295,10 @@ REST_FRAMEWORK = {
     # (like /auth/refresh/) that never sent a CSRF token because they were
     # never meant to need one.
     'DEFAULT_AUTHENTICATION_CLASSES': [
+        # Tried first — a cheap prefix check (see core.api_auth) that
+        # returns None immediately for ordinary JWT-bearing frontend
+        # requests, falling through to JWTAuthentication below.
+        'core.api_auth.ApiTokenAuthentication',
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     # Search (?search=) and ordering (?ordering=field,-other) are safe to

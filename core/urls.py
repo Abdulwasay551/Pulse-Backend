@@ -24,10 +24,11 @@ from .my_views import (
     MySupportTicketsView,
     MyTalentView,
 )
-from .views import AnnouncementViewSet
+from .views import AnnouncementViewSet, ApiTokenViewSet
 
 router = DefaultRouter()
 router.register('announcements', AnnouncementViewSet, basename='announcement')
+router.register('api-tokens', ApiTokenViewSet, basename='api-token')
 
 urlpatterns = [
     path('auth/register/', RegisterView.as_view(), name='auth-register'),

@@ -6,6 +6,7 @@ from wagtail.admin import urls as wagtailadmin_urls
 from wagtail.documents import urls as wagtaildocs_urls
 
 from core.admin_impersonate_views import admin_impersonate
+from core.api_docs import ApiDirectoryView
 from core.views import health, landing
 from cms.api import api_router
 
@@ -26,6 +27,8 @@ urlpatterns = [
     path('documents/', include(wagtaildocs_urls)),
 
     path('api/health/', health, name='health'),
+    # Public, unlinked dev reference — see core/api_docs.py.
+    path('api/api-directory/', ApiDirectoryView.as_view(), name='api-directory'),
     # Headless content API consumed by the Next.js frontend
     path('api/cms/v2/', api_router.urls),
     # Auth (JWT via httpOnly cookie + in-memory access token) and other

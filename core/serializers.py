@@ -4,7 +4,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import Announcement, DemoRequest, EmployeeInvite, Organization, UserProfile
+from .models import ApiToken, Announcement, DemoRequest, EmployeeInvite, Organization, UserProfile
+
+
+class ApiTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ApiToken
+        fields = ['id', 'label', 'prefix', 'created_at', 'last_used_at', 'revoked_at']
+        read_only_fields = fields
 
 User = get_user_model()
 
