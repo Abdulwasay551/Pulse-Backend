@@ -385,6 +385,101 @@ INTEGRATIONS = {
         ],
         'notify_tones': set(),
     },
+    'docusign': {
+        'label': 'DocuSign',
+        'category': 'People',
+        'description': 'Connect a DocuSign access token to confirm live access to your account — a brand-name alternative to Dropbox Sign for e-signature.',
+        'setup_instructions': (
+            'DocuSign\'s API is OAuth-only (no static API key) — a free Developer sandbox account is '
+            'self-serve, no DocuSign approval of Pulse needed:\n'
+            '1. Sign up for a free account at developers.docusign.com and create an app under My Apps & Keys.\n'
+            '2. Complete DocuSign\'s OAuth flow for that app (JWT Grant or Authorization Code) to obtain an '
+            'access token.\n'
+            '3. Paste that access token below, and enter "demo" or "production" depending on your account.\n'
+            'DocuSign access tokens expire — if the Test button here starts failing, generate a fresh token '
+            'and reconnect.'
+        ),
+        'fields': [
+            {'name': 'access_token', 'label': 'Access Token', 'type': 'password', 'secret': True, 'required': True},
+            {'name': 'environment', 'label': 'Environment ("demo" or "production")', 'type': 'text', 'secret': False, 'required': True, 'placeholder': 'demo'},
+        ],
+        'notify_tones': set(),
+    },
+    'xero': {
+        'label': 'Xero',
+        'category': 'Direct Payroll',
+        'description': 'Connect a Xero access token to confirm live access to your accounting/payroll data.',
+        'setup_instructions': (
+            'Xero\'s API is OAuth-only (no static API key), but app registration is free and self-serve for '
+            'any developer at developer.xero.com — no partnership needed:\n'
+            '1. Create an app at developer.xero.com/app/manage and complete Xero\'s OAuth flow (either via '
+            'your own app or Xero\'s API Explorer) to obtain an access token.\n'
+            '2. Paste that access token below.\n'
+            'Xero access tokens expire after 30 minutes — if the Test button here starts failing, generate '
+            'a fresh token and reconnect.'
+        ),
+        'fields': [
+            {'name': 'access_token', 'label': 'Access Token', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'quickbooks': {
+        'label': 'QuickBooks',
+        'category': 'Direct Payroll',
+        'description': 'Connect a QuickBooks access token to confirm live access to your company\'s payroll data.',
+        'setup_instructions': (
+            'QuickBooks\' API is OAuth-only (no static API key), but app registration is free and self-serve '
+            'at developer.intuit.com — no partnership needed:\n'
+            '1. Create an app at developer.intuit.com and complete Intuit\'s OAuth flow to obtain an access '
+            'token and your company\'s Realm ID (shown in the OAuth callback / your QuickBooks company URL).\n'
+            '2. Paste both below.\n'
+            'QuickBooks access tokens expire after an hour — if the Test button here starts failing, '
+            'generate a fresh token and reconnect.'
+        ),
+        'fields': [
+            {'name': 'access_token', 'label': 'Access Token', 'type': 'password', 'secret': True, 'required': True},
+            {'name': 'realm_id', 'label': 'Realm ID (Company ID)', 'type': 'text', 'secret': False, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'sage': {
+        'label': 'Sage',
+        'category': 'Direct Payroll',
+        'description': 'Connect a Sage Business Cloud access token to confirm live access to your accounting/payroll data.',
+        'setup_instructions': (
+            'Sage\'s API is OAuth-only (no static API key), but app registration is free and self-serve at '
+            'developer.sage.com — no partnership needed:\n'
+            '1. Create an app at developer.sage.com and complete Sage\'s OAuth flow to obtain an access token.\n'
+            '2. Paste that access token below.\n'
+            'Sage access tokens expire — if the Test button here starts failing, generate a fresh token and '
+            'reconnect.'
+        ),
+        'fields': [
+            {'name': 'access_token', 'label': 'Access Token', 'type': 'password', 'secret': True, 'required': True},
+        ],
+        'notify_tones': set(),
+    },
+    'google_workspace_devices': {
+        'label': 'Google Workspace Devices',
+        'category': 'IT & Assets',
+        'description': 'Confirm live access to your Google Workspace Chrome OS / mobile device inventory for BYOD and asset tracking.',
+        'setup_instructions': (
+            'Requires your own Google Workspace Super Admin to do two things in their own Google Cloud and '
+            'Admin console — entirely self-serve, no Google approval of Pulse needed:\n'
+            '1. In Google Cloud Console, create a Service Account and download its JSON key file.\n'
+            '2. In your Google Admin console, go to Security -> API Controls -> Domain-wide Delegation, add '
+            'the service account\'s Client ID, and authorize these scopes: '
+            'https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly, '
+            'https://www.googleapis.com/auth/admin.directory.device.mobile.readonly\n'
+            '3. Paste the full contents of the JSON key file below, plus the email address of a Workspace '
+            'admin for this connection to act as.'
+        ),
+        'fields': [
+            {'name': 'service_account_json', 'label': 'Service Account JSON Key', 'type': 'password', 'secret': True, 'required': True},
+            {'name': 'delegated_admin_email', 'label': 'Delegated Admin Email', 'type': 'text', 'secret': False, 'required': True, 'placeholder': 'admin@yourcompany.com'},
+        ],
+        'notify_tones': set(),
+    },
 }
 
 

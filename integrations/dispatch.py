@@ -114,14 +114,19 @@ def _lazy_action_testers():
     notification-only integration) that never needs them."""
     from .checkr_provider import CheckrError, test_credentials as checkr_test
     from .deel_provider import DeelError, test_credentials as deel_test
+    from .docusign_provider import DocuSignError, test_credentials as docusign_test
     from .dropbox_sign_provider import DropboxSignError, test_credentials as dropbox_sign_test
+    from .google_workspace_devices_provider import GoogleWorkspaceDevicesError, test_credentials as google_workspace_devices_test
     from .gusto_provider import GustoError, test_credentials as gusto_test
     from .hackerrank_provider import HackerRankError, test_credentials as hackerrank_test
     from .indeed_provider import IndeedError, test_credentials as indeed_test
     from .linkedin_learning_provider import LinkedInLearningError, test_credentials as linkedin_learning_test
+    from .quickbooks_provider import QuickBooksError, test_credentials as quickbooks_test
     from .remote_provider import RemoteError, test_credentials as remote_test
+    from .sage_provider import SageError, test_credentials as sage_test
     from .surveymonkey_provider import SurveyMonkeyError, test_credentials as surveymonkey_test
     from .wise_provider import WiseError, test_credentials as wise_test
+    from .xero_provider import XeroError, test_credentials as xero_test
     from .zoom_provider import ZoomError, test_credentials as zoom_test
 
     return {
@@ -136,6 +141,11 @@ def _lazy_action_testers():
         'linkedin_learning': _test_credentials_only(LinkedInLearningError, linkedin_learning_test),
         'indeed': _test_credentials_only(IndeedError, indeed_test),
         'gusto': _test_credentials_only(GustoError, gusto_test),
+        'docusign': _test_credentials_only(DocuSignError, docusign_test),
+        'xero': _test_credentials_only(XeroError, xero_test),
+        'quickbooks': _test_credentials_only(QuickBooksError, quickbooks_test),
+        'sage': _test_credentials_only(SageError, sage_test),
+        'google_workspace_devices': _test_credentials_only(GoogleWorkspaceDevicesError, google_workspace_devices_test),
     }
 
 
