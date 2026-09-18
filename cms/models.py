@@ -196,6 +196,30 @@ class HomePage(HeadlessPreviewMixin, Page):
 
     trust_logos = StreamField([("logo", TrustLogoBlock())], blank=True)
 
+    video_eyebrow = models.CharField(max_length=60, default="See it in action")
+    video_heading = models.CharField(
+        max_length=160, default="Watch the whole desk run, start to finish."
+    )
+    video_subtitle = models.TextField(
+        default="A new requisition, a shortlisted candidate, a signed placement, a "
+        "reconciled payroll run — see how it all moves through one system of record."
+    )
+    video_file = models.FileField(
+        upload_to="homepage-video/",
+        blank=True,
+        null=True,
+        help_text="Upload a video file directly. Takes priority over the link below, which "
+        "in turn takes priority over the built-in demo video. Note: on serverless hosting "
+        "(e.g. Vercel) uploaded files don't persist across deploys — for production, prefer "
+        "the link field with an externally hosted video (YouTube, Vimeo, or a direct CDN URL).",
+    )
+    video_url = models.URLField(
+        blank=True,
+        help_text="Link to an externally hosted video (YouTube, Vimeo, or a direct .mp4/CDN "
+        "URL). Used when no file is uploaded above; the built-in demo video is shown if both "
+        "are left blank.",
+    )
+
     suite_eyebrow = models.CharField(max_length=60, default="The Pulse suite")
     suite_title = models.CharField(
         max_length=160, default="One platform, every part of the desk."
@@ -248,6 +272,16 @@ class HomePage(HeadlessPreviewMixin, Page):
         FieldPanel("trust_logos"),
         MultiFieldPanel(
             [
+                FieldPanel("video_eyebrow"),
+                FieldPanel("video_heading"),
+                FieldPanel("video_subtitle"),
+                FieldPanel("video_file"),
+                FieldPanel("video_url"),
+            ],
+            heading="Marketing video",
+        ),
+        MultiFieldPanel(
+            [
                 FieldPanel("suite_eyebrow"),
                 FieldPanel("suite_title"),
                 FieldPanel("suite_subtitle"),
@@ -272,6 +306,10 @@ class HomePage(HeadlessPreviewMixin, Page):
         ),
     ]
 
+    @property
+    def video_file_url(self):
+        return self.video_file.url if self.video_file else ""
+
     api_fields = [
         APIField("hero_eyebrow"),
         APIField("hero_heading_pre"),
@@ -292,6 +330,11 @@ class HomePage(HeadlessPreviewMixin, Page):
         APIField("dashboard_attendance_percent"),
         APIField("dashboard_attendance_subtext"),
         APIField("trust_logos"),
+        APIField("video_eyebrow"),
+        APIField("video_heading"),
+        APIField("video_subtitle"),
+        APIField("video_file_url"),
+        APIField("video_url"),
         APIField("suite_eyebrow"),
         APIField("suite_title"),
         APIField("suite_subtitle"),
