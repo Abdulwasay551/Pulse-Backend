@@ -9,8 +9,8 @@ from it_assets.models import BYODCompliance, SupportTicket
 from it_assets.serializers import SupportTicketSerializer
 from payroll_benefits.models import BenefitClaim, PayrollRun
 from payroll_benefits.serializers import BenefitClaimSerializer
-from people.models import AttendanceRecord, LeaveRequest
-from people.serializers import EmployeeLiteSerializer
+from people.models import AttendanceRecord, LeaveRequest, Task
+from people.serializers import EmployeeLiteSerializer, TaskSerializer
 from recruit.serializers import OnboardingTaskSerializer
 from talent.models import Appraisal, CompetencyRating, Goal
 from talent.serializers import AppraisalSerializer, CompetencyRatingSerializer, GoalSerializer
@@ -59,7 +59,12 @@ class MyDashboardView(APIView):
             return error
 
         employee = profile.employee
-        today = timezone.now().date()
+        # .date() straight off timezone.now() would read off UTC's
+        # calendar day regardless of TIME_ZONE (settings.TIME_ZONE only
+        # governs conversions through timezone.localtime(), never
+        # timezone.now() itself) — localtime() first so "today" lines up
+        # with the org's actual local day (Asia/Karachi).
+        today = timezone.localtime(timezone.now()).date()
         month_start = today.replace(day=1)
         soon = today + timedelta(days=7)
         attendance_today = AttendanceRecord.objects.filter(employee=employee, date=today).first()
@@ -78,6 +83,7 @@ class MyDashboardView(APIView):
         claims_in_review = BenefitClaim.objects.filter(employee=employee, status__in=['Submitted', 'Under Review'])
         goals_due_soon = goals_qs.filter(status__in=['Not Started', 'In Progress'], target_date__isnull=False, target_date__lte=soon)
         byod_flags = BYODCompliance.objects.filter(employee=employee, compliance_status='Non-Compliant')
+        open_assigned_tasks = Task.objects.filter(employee=employee).exclude(status='Completed')
 
         pending_tasks = (
             [
@@ -108,6 +114,13 @@ class MyDashboardView(APIView):
                     'status': 'Action', 'tone': 'maroon', 'href': '/dashboard/settings',
                 }
                 for b in byod_flags
+            ]
+            + [
+                {
+                    'id': f'task-{t.id}', 'label': f'Task: {t.title}',
+                    'status': t.status, 'tone': 'amber', 'href': '/dashboard',
+                }
+                for t in open_assigned_tasks
             ]
         )
 
@@ -175,12 +188,17 @@ class ClockInView(APIView):
         if error:
             return error
 
-        today = timezone.now().date()
+        now = timezone.localtime(timezone.now())
+        today = now.date()
         record, _ = AttendanceRecord.objects.get_or_create(
             employee=profile.employee, date=today, defaults={'owner_id': profile.data_owner_id}
         )
         if not record.clock_in:
-            record.clock_in = timezone.now().time()
+            # Hour/minute only — clock times are an HH:MM read, not a
+            # stopwatch, and dropping seconds/microseconds here keeps every
+            # consumer (admin table, employee widget, exports) clean without
+            # each one having to re-trim what it's handed.
+            record.clock_in = now.time().replace(second=0, microsecond=0)
             record.save(update_fields=['clock_in'])
         return Response({'clock_in': record.clock_in, 'clock_out': record.clock_out})
 
@@ -193,13 +211,66 @@ class ClockOutView(APIView):
         if error:
             return error
 
-        today = timezone.now().date()
+        now = timezone.localtime(timezone.now())
+        today = now.date()
         record = AttendanceRecord.objects.filter(employee=profile.employee, date=today).first()
         if record is None or not record.clock_in:
             return Response({'detail': 'Clock in before clocking out.'}, status=400)
-        record.clock_out = timezone.now().time()
-        record.save(update_fields=['clock_out'])
-        return Response({'clock_in': record.clock_in, 'clock_out': record.clock_out})
+        record.clock_out = now.time().replace(second=0, microsecond=0)
+        if 'notes' in request.data:
+            # Clocking out prompts "what did you get done today?" on the
+            # frontend — appended (not overwritten) since a clock-in note
+            # may already be sitting in this field.
+            addition = str(request.data.get('notes') or '').strip()
+            if addition:
+                record.notes = f'{record.notes}\n{addition}'.strip() if record.notes else addition
+        record.save(update_fields=['clock_out', 'notes'])
+        return Response({'clock_in': record.clock_in, 'clock_out': record.clock_out, 'notes': record.notes})
+
+
+class MyTasksView(APIView):
+    """An Employee's own tasks, assigned by their manager/HR through
+    people.TaskViewSet — read-only here (creating/editing a task stays
+    manager/HR-only there); marking one done is the separate, narrower
+    MyTaskCompleteView below, the same self-service split every other row
+    in this module uses. Surfaced on the dashboard and in the clock-out
+    prompt ("what did you finish today")."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+        tasks = Task.objects.filter(employee=profile.employee).select_related('assigned_by').order_by(
+            'status', '-created_at'
+        )
+        return Response(TaskSerializer(tasks, many=True).data)
+
+
+class MyTaskCompleteView(APIView):
+    """Marks one of the caller's own tasks Completed (or back to In
+    Progress/Pending), optionally with completion notes — what the
+    clock-out prompt posts to per task the employee checks off."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        profile, error = _employee_profile_or_error(request)
+        if error:
+            return error
+        task = Task.objects.filter(pk=pk, employee=profile.employee).first()
+        if task is None:
+            return Response({'detail': 'Task not found.'}, status=404)
+        task.status = request.data.get('status') or 'Completed'
+        if 'completion_notes' in request.data:
+            task.completion_notes = request.data.get('completion_notes') or ''
+        if task.status == 'Completed' and not task.completed_at:
+            task.completed_at = timezone.now()
+        elif task.status != 'Completed':
+            task.completed_at = None
+        task.save(update_fields=['status', 'completion_notes', 'completed_at'])
+        return Response(TaskSerializer(task).data)
 
 
 class MyOnboardingChecklistView(APIView):

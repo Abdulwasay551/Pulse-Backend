@@ -59,6 +59,7 @@ from .models import (
     Shift,
     Survey,
     SurveyResponse,
+    Task,
 )
 from .serializers import (
     AttendanceRecordSerializer,
@@ -71,6 +72,7 @@ from .serializers import (
     ShiftSerializer,
     SurveyResponseSerializer,
     SurveySerializer,
+    TaskSerializer,
 )
 
 
@@ -281,6 +283,34 @@ class ShiftViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(owner_id=owner_scope_id(self.request))
+
+
+class TaskViewSet(viewsets.ModelViewSet):
+    """Day-to-day task assignment. HR/Admin keep full CRUD across the
+    tenant; Manager (any login with direct/indirect reports, regardless of
+    base role) gets RW scoped to their own team; Employee/Contractor get a
+    read-only view of tasks assigned to them here — actually marking one
+    complete goes through the dedicated /my/tasks/ self-service endpoint
+    (core/my_views.py), same "narrow self-service endpoint, not raw model
+    write access" split every other self-service row in this file uses."""
+
+    queryset = Task.objects.select_related('employee', 'assigned_by').all()
+    serializer_class = TaskSerializer
+    permission_classes = [
+        IsAuthenticated,
+        IsOwner | matrix_permission(mgr='RW*', emp='R*', con='R*'),
+    ]
+
+    def get_queryset(self):
+        qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
+        if is_hr_or_legacy(self.request):
+            return qs
+        return scoped_queryset(self.request, qs, mgr='RW*', emp='R*', con='R*')
+
+    def perform_create(self, serializer):
+        profile = getattr(self.request.user, 'profile', None)
+        assigned_by = profile.employee if profile and profile.employee_id else None
+        serializer.save(owner_id=owner_scope_id(self.request), assigned_by=assigned_by)
 
 
 class LeaveRequestViewSet(CsvImportExportMixin, viewsets.ModelViewSet):

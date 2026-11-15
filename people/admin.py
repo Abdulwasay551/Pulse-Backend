@@ -11,6 +11,7 @@ from .models import (
     Shift,
     Survey,
     SurveyResponse,
+    Task,
 )
 
 
@@ -37,6 +38,13 @@ class AttendanceRecordAdmin(ModelAdmin):
 class ShiftAdmin(ModelAdmin):
     list_display = ['employee', 'date', 'start_time', 'end_time', 'owner']
     list_filter = ['date']
+
+
+@admin.register(Task)
+class TaskAdmin(ModelAdmin):
+    list_display = ['employee', 'title', 'status', 'due_date', 'assigned_by', 'owner']
+    list_filter = ['status', 'due_date']
+    search_fields = ['title', 'employee__name']
 
 
 @admin.register(LeaveRequest)

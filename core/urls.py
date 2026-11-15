@@ -23,6 +23,8 @@ from .my_views import (
     MyOnboardingChecklistView,
     MySupportTicketsView,
     MyTalentView,
+    MyTaskCompleteView,
+    MyTasksView,
 )
 from .views import AnnouncementViewSet, ApiTokenViewSet, NotificationPreferencesView
 
@@ -49,6 +51,8 @@ urlpatterns = [
     path('my/dashboard/', MyDashboardView.as_view(), name='my-dashboard'),
     path('my/clock-in/', ClockInView.as_view(), name='my-clock-in'),
     path('my/clock-out/', ClockOutView.as_view(), name='my-clock-out'),
+    path('my/tasks/', MyTasksView.as_view(), name='my-tasks'),
+    path('my/tasks/<int:pk>/complete/', MyTaskCompleteView.as_view(), name='my-task-complete'),
     path('my/onboarding-checklist/', MyOnboardingChecklistView.as_view(), name='my-onboarding-checklist'),
     path('my/talent/', MyTalentView.as_view(), name='my-talent'),
     path('my/benefit-claims/', MyBenefitClaimsView.as_view(), name='my-benefit-claims'),

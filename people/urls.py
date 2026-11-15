@@ -13,6 +13,7 @@ from .views import (
     ShiftViewSet,
     SurveyResponseViewSet,
     SurveyViewSet,
+    TaskViewSet,
 )
 
 router = DefaultRouter()
@@ -20,6 +21,7 @@ router.register('employees', EmployeeViewSet, basename='employee')
 router.register('employee-documents', EmployeeDocumentViewSet, basename='employee-document')
 router.register('attendance-records', AttendanceRecordViewSet, basename='attendance-record')
 router.register('shifts', ShiftViewSet, basename='shift')
+router.register('tasks', TaskViewSet, basename='task')
 router.register('leave-requests', LeaveRequestViewSet, basename='leave-request')
 router.register('surveys', SurveyViewSet, basename='survey')
 router.register('survey-responses', SurveyResponseViewSet, basename='survey-response')

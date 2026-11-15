@@ -135,6 +135,39 @@ class Shift(models.Model):
         return f'{self.employee.name} — {self.date} {self.start_time}–{self.end_time}'
 
 
+class Task(models.Model):
+    """Day-to-day task assignment (EVO-People > Attendance Management) — a
+    manager/HR hands an employee something to get done; the employee marks
+    it complete, typically from the clock-out prompt. Deliberately separate
+    from Talent's Goal (longer-horizon, KPI-shaped) — this is the "what are
+    you working on today/this week" layer."""
+
+    STATUS_CHOICES = [
+        ('Pending', 'Pending'),
+        ('In Progress', 'In Progress'),
+        ('Completed', 'Completed'),
+    ]
+
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='tasks')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='tasks')
+    assigned_by = models.ForeignKey(
+        Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='tasks_assigned'
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    due_date = models.DateField(null=True, blank=True)
+    completion_notes = models.TextField(blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.employee.name} — {self.title}'
+
+
 class LeaveRequest(models.Model):
     """Time Off (EVO-People > Attendance Management) — requests, approvals,
     balances (balances are derived by counting Approved days, not stored

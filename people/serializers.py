@@ -12,6 +12,7 @@ from .models import (
     Shift,
     Survey,
     SurveyResponse,
+    Task,
 )
 
 
@@ -122,6 +123,13 @@ def _validate_owned_employee(employee, user_id):
 
 class AttendanceRecordSerializer(serializers.ModelSerializer):
     employee_detail = EmployeeLiteSerializer(source='employee', read_only=True)
+    # Hour:minute only, on the way in and out — a plain TimeField serializes
+    # with seconds/microseconds attached whenever the underlying value has
+    # them (e.g. clock-in/out set from timezone.now()), which is exactly the
+    # "milliseconds showing up" complaint. input_formats keeps accepting
+    # '%H:%M:%S' too, for any already-stored record / CSV import.
+    clock_in = serializers.TimeField(format='%H:%M', input_formats=['%H:%M', '%H:%M:%S'], required=False, allow_null=True)
+    clock_out = serializers.TimeField(format='%H:%M', input_formats=['%H:%M', '%H:%M:%S'], required=False, allow_null=True)
 
     class Meta:
         model = AttendanceRecord
@@ -207,6 +215,22 @@ class RecognitionSerializer(serializers.ModelSerializer):
         model = Recognition
         fields = ['id', 'employee', 'employee_detail', 'recognition_type', 'given_by', 'message', 'created_at']
         read_only_fields = ['id', 'created_at']
+
+    def validate_employee(self, employee):
+        return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
+
+
+class TaskSerializer(serializers.ModelSerializer):
+    employee_detail = EmployeeLiteSerializer(source='employee', read_only=True)
+    assigned_by_detail = EmployeeLiteSerializer(source='assigned_by', read_only=True)
+
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'employee', 'employee_detail', 'assigned_by', 'assigned_by_detail', 'title', 'description',
+            'status', 'due_date', 'completion_notes', 'completed_at', 'created_at',
+        ]
+        read_only_fields = ['id', 'assigned_by', 'completed_at', 'created_at']
 
     def validate_employee(self, employee):
         return _validate_owned_employee(employee, owner_scope_id(self.context['request']))
