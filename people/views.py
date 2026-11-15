@@ -287,24 +287,28 @@ class ShiftViewSet(CsvImportExportMixin, viewsets.ModelViewSet):
 
 class TaskViewSet(viewsets.ModelViewSet):
     """Day-to-day task assignment. HR/Admin keep full CRUD across the
-    tenant; Manager (any login with direct/indirect reports, regardless of
-    base role) gets RW scoped to their own team; Employee/Contractor get a
-    read-only view of tasks assigned to them here — actually marking one
-    complete goes through the dedicated /my/tasks/ self-service endpoint
-    (core/my_views.py), same "narrow self-service endpoint, not raw model
-    write access" split every other self-service row in this file uses."""
+    tenant; Department Head gets read-only access scoped to their own
+    department (same as Attendance/Shift above); Manager (any login with
+    direct/indirect reports, regardless of base role) gets RW scoped to
+    their own team; Employee/Contractor get a read-only view of tasks
+    assigned to them here — actually marking one complete goes through the
+    dedicated /my/tasks/ self-service endpoint (core/my_views.py), same
+    "narrow self-service endpoint, not raw model write access" split every
+    other self-service row in this file uses."""
 
     queryset = Task.objects.select_related('employee', 'assigned_by').all()
     serializer_class = TaskSerializer
     permission_classes = [
         IsAuthenticated,
-        IsOwner | matrix_permission(mgr='RW*', emp='R*', con='R*'),
+        IsOwner | IsDepartmentHeadReadOnly | matrix_permission(mgr='RW*', emp='R*', con='R*'),
     ]
 
     def get_queryset(self):
         qs = self.queryset.filter(owner_id=owner_scope_id(self.request))
         if is_hr_or_legacy(self.request):
             return qs
+        if _role_is(self.request, 'Department Head'):
+            return qs.filter(employee__department=self.request.user.profile.department)
         return scoped_queryset(self.request, qs, mgr='RW*', emp='R*', con='R*')
 
     def perform_create(self, serializer):
